@@ -1,4 +1,4 @@
-IMG ?= ghcr.io/llm-d-incubation/batch-gw-operator:latest
+IMG ?= ghcr.io/opendatahub-io/batch-gateway-operator:latest
 CONTROLLER_GEN ?= go run sigs.k8s.io/controller-tools/cmd/controller-gen@v0.17.3
 ENVTEST ?= go run sigs.k8s.io/controller-runtime/tools/setup-envtest@release-0.21
 ENVTEST_K8S_VERSION ?= 1.33.0
