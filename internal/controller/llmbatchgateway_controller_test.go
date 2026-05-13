@@ -24,7 +24,6 @@ func newTestGateway(name, namespace string) *batchv1alpha1.LLMBatchGateway {
 			SecretRef: batchv1alpha1.SecretReference{Name: "test-secrets"},
 			DBBackend: "postgresql",
 			FileStorage: &batchv1alpha1.FileStorageSpec{
-				Type: "s3",
 				S3: &batchv1alpha1.S3StorageSpec{
 					Region:   "us-east-1",
 					Endpoint: "https://s3.example.com",

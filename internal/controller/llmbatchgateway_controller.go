@@ -26,6 +26,7 @@ const (
 	ConditionReady              = "Ready"
 	ConditionAPIServerAvailable = "APIServerAvailable"
 	ConditionProcessorAvailable = "ProcessorAvailable"
+	ConditionGCAvailable        = "GCAvailable"
 
 	fieldOwner = "llmbatchgateway-controller"
 )
@@ -244,6 +245,7 @@ func (r *LLMBatchGatewayReconciler) updateStatus(ctx context.Context, gw *batchv
 		Type:               ConditionAPIServerAvailable,
 		Status:             conditionStatus(apiAvailable),
 		Reason:             conditionReason(apiAvailable, "Available", "Unavailable"),
+		Message:            conditionMessage(apiAvailable, "API server has at least one ready replica", "API server has no ready replicas"),
 		ObservedGeneration: gw.Generation,
 	})
 
@@ -252,14 +254,25 @@ func (r *LLMBatchGatewayReconciler) updateStatus(ctx context.Context, gw *batchv
 		Type:               ConditionProcessorAvailable,
 		Status:             conditionStatus(procAvailable),
 		Reason:             conditionReason(procAvailable, "Available", "Unavailable"),
+		Message:            conditionMessage(procAvailable, "Processor has at least one ready replica", "Processor has no ready replicas"),
 		ObservedGeneration: gw.Generation,
 	})
 
-	ready := apiAvailable && procAvailable
+	gcAvailable := componentStatus.GC != nil && componentStatus.GC.ReadyReplicas >= 1
+	meta.SetStatusCondition(&gw.Status.Conditions, metav1.Condition{
+		Type:               ConditionGCAvailable,
+		Status:             conditionStatus(gcAvailable),
+		Reason:             conditionReason(gcAvailable, "Available", "Unavailable"),
+		Message:            conditionMessage(gcAvailable, "GC has at least one ready replica", "GC has no ready replicas"),
+		ObservedGeneration: gw.Generation,
+	})
+
+	ready := apiAvailable && procAvailable && gcAvailable
 	meta.SetStatusCondition(&gw.Status.Conditions, metav1.Condition{
 		Type:               ConditionReady,
 		Status:             conditionStatus(ready),
 		Reason:             conditionReason(ready, "AllComponentsReady", "ComponentsNotReady"),
+		Message:            conditionMessage(ready, "All components have at least one ready replica", "One or more components have no ready replicas"),
 		ObservedGeneration: gw.Generation,
 	})
 
@@ -322,6 +335,13 @@ func validateSpec(gw *batchv1alpha1.LLMBatchGateway) error {
 		return fmt.Errorf("processor cannot have both globalInferenceGateway and modelGateways configured")
 	}
 	return nil
+}
+
+func conditionMessage(ok bool, trueMsg, falseMsg string) string {
+	if ok {
+		return trueMsg
+	}
+	return falseMsg
 }
 
 var _ reconcile.Reconciler = (*LLMBatchGatewayReconciler)(nil)

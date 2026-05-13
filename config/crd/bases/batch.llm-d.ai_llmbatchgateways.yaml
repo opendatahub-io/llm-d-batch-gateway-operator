@@ -20,12 +20,25 @@ spec:
     - jsonPath: .status.conditions[?(@.type=="Ready")].status
       name: Ready
       type: string
+    - jsonPath: .status.componentStatus.apiServer.readyReplicas
+      name: API-Ready
+      type: integer
+    - jsonPath: .status.componentStatus.processor.readyReplicas
+      name: Proc-Ready
+      type: integer
+    - jsonPath: .status.componentStatus.gc.readyReplicas
+      name: GC-Ready
+      type: integer
     - jsonPath: .metadata.creationTimestamp
       name: Age
       type: date
     name: v1alpha1
     schema:
       openAPIV3Schema:
+        description: |-
+          LLMBatchGateway is the Schema for the llmbatchgateways API.
+          It represents a fully-managed deployment of the LLM-D batch gateway,
+          consisting of an API server, a request processor and a garbage-collector.
         properties:
           apiVersion:
             description: |-
@@ -45,65 +58,110 @@ spec:
           metadata:
             type: object
           spec:
+            description: Spec defines the desired state of LLMBatchGateway.
             properties:
               apiServer:
+                description: APIServer configures the HTTP API server component.
                 properties:
                   config:
+                    description: Config holds fine-grained API server configuration.
                     properties:
                       batchAPI:
+                        description: BatchAPI configures the batch job submission
+                          endpoint behaviour.
                         properties:
                           eventTTLSeconds:
+                            description: EventTTLSeconds is how long job events are
+                              retained before expiry.
                             format: int32
                             type: integer
                           passThroughHeaders:
+                            description: PassThroughHeaders is a list of HTTP request
+                              headers forwarded to the inference backend.
                             items:
+                              maxLength: 256
                               type: string
                             type: array
                         type: object
                       enablePprof:
+                        description: EnablePprof enables the Go pprof profiling HTTP
+                          endpoints.
                         type: boolean
                       fileAPI:
+                        description: FileAPI configures the file upload/download endpoint
+                          behaviour.
                         properties:
                           defaultExpirationSeconds:
+                            description: DefaultExpirationSeconds is the default TTL
+                              for uploaded files.
                             format: int64
                             type: integer
                           maxLineCount:
+                            description: MaxLineCount is the maximum number of lines
+                              allowed in a JSONL batch input file.
                             format: int64
                             type: integer
                           maxSizeBytes:
+                            description: MaxSizeBytes is the maximum allowed size
+                              of a single uploaded file.
                             format: int64
                             type: integer
                         type: object
                       idleTimeoutSeconds:
+                        description: IdleTimeoutSeconds is the maximum amount of time
+                          to wait for the next request.
                         format: int32
                         type: integer
                       logging:
+                        description: Logging configures log verbosity for the API
+                          server.
                         properties:
                           verbosity:
+                            description: Verbosity sets the log verbosity level (higher
+                              means more verbose).
                             format: int32
                             type: integer
                         type: object
                       observabilityPort:
-                        type: string
+                        description: ObservabilityPort is the TCP port that exposes
+                          metrics and health endpoints.
+                        format: int32
+                        maximum: 65535
+                        minimum: 1
+                        type: integer
                       port:
-                        type: string
+                        description: Port is the TCP port the API server listens on.
+                        format: int32
+                        maximum: 65535
+                        minimum: 1
+                        type: integer
                       readTimeoutSeconds:
+                        description: ReadTimeoutSeconds is the maximum duration for
+                          reading an entire HTTP request.
                         format: int32
                         type: integer
                       writeTimeoutSeconds:
+                        description: WriteTimeoutSeconds is the maximum duration before
+                          timing out writes of the response.
                         format: int32
                         type: integer
                     type: object
                   image:
+                    description: Image is the container image for the API server (e.g.
+                      "ghcr.io/org/apiserver:v1.2.3").
+                    maxLength: 1024
                     type: string
                   replicas:
                     default: 1
+                    description: |-
+                      Replicas is the desired number of API server pods.
+                      Setting this to 0 suspends the API server; the Ready condition will be False.
                     format: int32
                     minimum: 0
                     type: integer
                   resources:
-                    description: ResourceRequirements describes the compute resource
-                      requirements.
+                    description: Resources defines CPU and memory requests/limits
+                      for the API server container.
                     properties:
                       claims:
                         description: |-
@@ -166,219 +224,403 @@ spec:
                 type: object
               dbBackend:
                 default: postgresql
+                description: DBBackend selects the database backend used for job state
+                  storage.
                 enum:
                 - redis
                 - postgresql
                 - valkey
                 type: string
               fileStorage:
+                description: |-
+                  FileStorage configures the file storage backend used to persist batch
+                  input/output files. If omitted, S3 defaults are used.
                 properties:
                   fs:
+                    description: FS configures PVC-backed filesystem storage. Mutually
+                      exclusive with s3.
                     properties:
                       basePath:
+                        description: BasePath is the root directory inside the PVC
+                          where files are stored.
+                        maxLength: 4096
                         type: string
-                      pvcName:
+                      claimName:
+                        description: ClaimName is the name of the PersistentVolumeClaim
+                          to mount.
+                        maxLength: 253
                         type: string
                     type: object
                   retry:
+                    description: Retry configures retry behaviour for transient file
+                      storage errors.
                     properties:
                       initialBackoff:
                         default: 1s
+                        description: InitialBackoff is the wait duration before the
+                          first retry (e.g. "1s").
+                        pattern: ^([0-9]+(\.[0-9]+)?(ms|s|m|h))+$
                         type: string
                       maxBackoff:
                         default: 10s
+                        description: MaxBackoff is the maximum wait duration between
+                          retries (e.g. "10s").
+                        pattern: ^([0-9]+(\.[0-9]+)?(ms|s|m|h))+$
                         type: string
                       maxRetries:
                         default: 3
+                        description: MaxRetries is the maximum number of retry attempts.
                         format: int32
                         type: integer
                     type: object
                   s3:
+                    description: S3 configures S3-compatible object storage. Mutually
+                      exclusive with fs.
                     properties:
                       accessKeyId:
+                        description: |-
+                          AccessKeyID is the S3 access key ID (non-sensitive). The corresponding
+                          secret access key must be provided via spec.secretRef.
+                        maxLength: 1024
                         type: string
                       autoCreateBucket:
+                        description: AutoCreateBucket causes the operator to create
+                          the bucket if it does not exist.
                         type: boolean
                       endpoint:
+                        description: Endpoint overrides the S3 endpoint URL for non-AWS
+                          providers (e.g. MinIO).
+                        maxLength: 2048
                         type: string
                       prefix:
+                        description: Prefix is an optional key prefix applied to all
+                          objects written to the bucket.
+                        maxLength: 1024
                         type: string
                       region:
+                        description: Region is the AWS region (e.g. "us-east-1").
+                        maxLength: 253
                         type: string
                       usePathStyle:
+                        description: UsePathStyle forces path-style addressing (required
+                          by some S3-compatible stores).
                         type: boolean
                     type: object
-                  type:
-                    default: s3
-                    enum:
-                    - fs
-                    - s3
-                    type: string
                 type: object
+                x-kubernetes-validations:
+                - message: exactly one of fileStorage.s3 or fileStorage.fs must be
+                    set
+                  rule: has(self.s3) != has(self.fs)
               gc:
+                description: GC configures the garbage-collector component that expires
+                  old jobs and files.
                 properties:
                   config:
+                    description: Config holds fine-grained GC configuration.
                     properties:
                       dryRun:
+                        description: DryRun causes the GC to log what it would delete
+                          without actually deleting anything.
                         type: boolean
                       logging:
+                        description: Logging configures log verbosity for the GC.
                         properties:
                           verbosity:
+                            description: Verbosity sets the log verbosity level (higher
+                              means more verbose).
                             format: int32
                             type: integer
                         type: object
                       maxConcurrency:
+                        description: MaxConcurrency is the maximum number of deletion
+                          operations performed in parallel.
                         format: int32
                         type: integer
                     type: object
                   image:
+                    description: Image is the container image for the GC (e.g. "ghcr.io/org/batch-gc:v1.2.3").
+                    maxLength: 1024
                     type: string
                   interval:
                     default: 30m
+                    description: Interval is how often the GC runs (e.g. "30m").
+                    pattern: ^([0-9]+(\.[0-9]+)?(ms|s|m|h))+$
                     type: string
                 required:
                 - image
                 type: object
               grafana:
+                description: Grafana enables the bundled Grafana dashboard ConfigMap.
                 properties:
                   enabled:
+                    description: Enabled controls whether a Grafana dashboard ConfigMap
+                      is created.
                     type: boolean
                 type: object
               httpRoute:
+                description: HTTPRoute configures a Gateway API HTTPRoute resource
+                  to expose the API server.
                 properties:
                   annotations:
                     additionalProperties:
                       type: string
+                    description: Annotations are extra annotations applied to the
+                      HTTPRoute resource.
                     type: object
                   enabled:
+                    description: Enabled controls whether an HTTPRoute resource is
+                      created.
                     type: boolean
                   parentRefs:
+                    description: ParentRefs is the list of Gateways this HTTPRoute
+                      should attach to.
                     items:
+                      description: ParentReference identifies a Gateway to which an
+                        HTTPRoute should attach.
                       properties:
                         name:
+                          description: Name is the name of the Gateway resource.
+                          maxLength: 253
                           type: string
                         namespace:
+                          description: Namespace is the namespace of the Gateway resource.
+                            Defaults to the HTTPRoute's namespace.
+                          maxLength: 63
                           type: string
                         sectionName:
+                          description: SectionName is the name of a specific listener
+                            on the Gateway to attach to.
+                          maxLength: 253
                           type: string
                       required:
                       - name
                       type: object
                     type: array
+                    x-kubernetes-list-map-keys:
+                    - name
+                    x-kubernetes-list-type: map
                 type: object
               monitoring:
+                description: Monitoring enables Prometheus ServiceMonitor and PodMonitor
+                  resources.
                 properties:
                   enabled:
+                    description: Enabled controls whether a ServiceMonitor and PodMonitor
+                      are created for each component.
                     type: boolean
                 type: object
               otel:
+                description: OTEL configures OpenTelemetry tracing for all components.
                 properties:
                   endpoint:
+                    description: Endpoint is the OTLP gRPC or HTTP endpoint (e.g.
+                      "http://collector:4317").
+                    maxLength: 2048
                     type: string
                   insecure:
+                    description: Insecure disables TLS for the OTLP connection.
                     type: boolean
                   postgresqlTracing:
+                    description: PostgresqlTracing enables tracing of PostgreSQL operations.
                     type: boolean
                   redisTracing:
+                    description: RedisTracing enables tracing of Redis operations.
                     type: boolean
                   sampler:
+                    description: Sampler is the OTEL sampler type (e.g. "parentbased_traceidratio").
+                    maxLength: 253
                     type: string
                   samplerArg:
+                    description: SamplerArg is the argument passed to the sampler
+                      (e.g. "0.1" for 10% sampling).
+                    maxLength: 253
                     type: string
                 type: object
               processor:
+                description: Processor configures the request-processing worker component.
                 properties:
                   config:
+                    description: Config holds fine-grained processor configuration.
                     properties:
                       defaultOutputExpirationSeconds:
+                        description: DefaultOutputExpirationSeconds is the TTL for
+                          job output files.
                         format: int64
                         type: integer
                       enablePprof:
+                        description: EnablePprof enables the Go pprof profiling HTTP
+                          endpoints.
                         type: boolean
                       globalConcurrency:
+                        description: GlobalConcurrency is the maximum number of in-flight
+                          inference requests across all models.
                         format: int32
                         type: integer
                       inferenceObjective:
+                        description: InferenceObjective specifies the scheduling objective
+                          (e.g. "throughput", "latency").
+                        maxLength: 253
                         type: string
                       logging:
+                        description: Logging configures log verbosity for the processor.
                         properties:
                           verbosity:
+                            description: Verbosity sets the log verbosity level (higher
+                              means more verbose).
                             format: int32
                             type: integer
                         type: object
                       numWorkers:
+                        description: NumWorkers is the number of concurrent worker
+                          goroutines processing jobs.
                         format: int32
                         type: integer
                       perModelMaxConcurrency:
+                        description: PerModelMaxConcurrency is the maximum number
+                          of in-flight inference requests per model.
                         format: int32
                         type: integer
                       progressTTLSeconds:
+                        description: ProgressTTLSeconds is how long in-progress job
+                          state is retained before being considered stale.
                         format: int64
                         type: integer
                       recoveryMaxConcurrency:
+                        description: RecoveryMaxConcurrency is the maximum concurrency
+                          for recovering in-progress jobs after restart.
                         format: int32
                         type: integer
                     type: object
                   globalInferenceGateway:
+                    description: |-
+                      GlobalInferenceGateway is the default inference gateway used for all models
+                      unless overridden by a ModelGateways entry.
                     properties:
                       initialBackoff:
+                        description: InitialBackoff is the wait duration before the
+                          first retry (e.g. "500ms").
+                        maxLength: 32
+                        pattern: ^([0-9]+(\.[0-9]+)?(ms|s|m|h))+$
                         type: string
                       maxBackoff:
+                        description: MaxBackoff is the maximum wait duration between
+                          retries (e.g. "30s").
+                        maxLength: 32
+                        pattern: ^([0-9]+(\.[0-9]+)?(ms|s|m|h))+$
                         type: string
                       maxRetries:
+                        description: MaxRetries is the maximum number of retry attempts
+                          on transient errors.
                         format: int32
                         type: integer
                       requestTimeout:
+                        description: RequestTimeout is the maximum time to wait for
+                          a single inference response (e.g. "5m").
+                        maxLength: 32
+                        pattern: ^([0-9]+(\.[0-9]+)?(ms|s|m|h))+$
                         type: string
-                      tlsCaCertFile:
+                      tlsCACertFile:
+                        description: TLSCACertFile is the path to a custom CA certificate
+                          file for verifying the gateway's TLS certificate.
+                        maxLength: 4096
                         type: string
                       tlsClientCertFile:
+                        description: TLSClientCertFile is the path to the client TLS
+                          certificate file for mutual TLS.
+                        maxLength: 4096
                         type: string
                       tlsClientKeyFile:
+                        description: TLSClientKeyFile is the path to the client TLS
+                          private key file for mutual TLS.
+                        maxLength: 4096
                         type: string
                       tlsInsecureSkipVerify:
+                        description: TLSInsecureSkipVerify disables TLS certificate
+                          verification. Not recommended for production.
                         type: boolean
                       url:
+                        description: URL is the base URL of the inference gateway
+                          (e.g. "http://gateway.svc:8000").
+                        maxLength: 2048
                         type: string
                     required:
                     - url
                     type: object
                   image:
+                    description: Image is the container image for the processor (e.g.
+                      "ghcr.io/org/processor:v1.2.3").
+                    maxLength: 1024
                     type: string
                   modelGateways:
                     additionalProperties:
+                      description: InferenceGatewaySpec configures a connection to
+                        an inference gateway.
                       properties:
                         initialBackoff:
+                          description: InitialBackoff is the wait duration before
+                            the first retry (e.g. "500ms").
+                          maxLength: 32
+                          pattern: ^([0-9]+(\.[0-9]+)?(ms|s|m|h))+$
                           type: string
                         maxBackoff:
+                          description: MaxBackoff is the maximum wait duration between
+                            retries (e.g. "30s").
+                          maxLength: 32
+                          pattern: ^([0-9]+(\.[0-9]+)?(ms|s|m|h))+$
                           type: string
                         maxRetries:
+                          description: MaxRetries is the maximum number of retry attempts
+                            on transient errors.
                           format: int32
                           type: integer
                         requestTimeout:
+                          description: RequestTimeout is the maximum time to wait
+                            for a single inference response (e.g. "5m").
+                          maxLength: 32
+                          pattern: ^([0-9]+(\.[0-9]+)?(ms|s|m|h))+$
                           type: string
-                        tlsCaCertFile:
+                        tlsCACertFile:
+                          description: TLSCACertFile is the path to a custom CA certificate
+                            file for verifying the gateway's TLS certificate.
+                          maxLength: 4096
                           type: string
                         tlsClientCertFile:
+                          description: TLSClientCertFile is the path to the client
+                            TLS certificate file for mutual TLS.
+                          maxLength: 4096
                           type: string
                         tlsClientKeyFile:
+                          description: TLSClientKeyFile is the path to the client
+                            TLS private key file for mutual TLS.
+                          maxLength: 4096
                           type: string
                         tlsInsecureSkipVerify:
+                          description: TLSInsecureSkipVerify disables TLS certificate
+                            verification. Not recommended for production.
                           type: boolean
                         url:
+                          description: URL is the base URL of the inference gateway
+                            (e.g. "http://gateway.svc:8000").
+                          maxLength: 2048
                           type: string
                       required:
                       - url
                       type: object
+                    description: |-
+                      ModelGateways maps model names to per-model inference gateway configurations,
+                      overriding GlobalInferenceGateway for those models.
                     type: object
                   replicas:
                     default: 1
+                    description: |-
+                      Replicas is the desired number of processor pods.
+                      Setting this to 0 suspends the processor; the Ready condition will be False.
                     format: int32
                     minimum: 0
                     type: integer
                   resources:
-                    description: ResourceRequirements describes the compute resource
-                      requirements.
+                    description: Resources defines CPU and memory requests/limits
+                      for the processor container.
                     properties:
                       claims:
                         description: |-
@@ -440,39 +682,83 @@ spec:
                 - image
                 type: object
               prometheusRule:
+                description: PrometheusRule configures a PrometheusRule resource with
+                  pre-built alerting rules.
                 properties:
                   enabled:
+                    description: Enabled controls whether a PrometheusRule resource
+                      is created.
                     type: boolean
                   labels:
                     additionalProperties:
                       type: string
+                    description: |-
+                      Labels are additional labels applied to the PrometheusRule resource,
+                      used to match Prometheus operator rule selectors.
                     type: object
                 type: object
               secretRef:
+                description: |-
+                  SecretRef references the Kubernetes Secret that holds runtime credentials
+                  (database URL, S3 keys, inference API key, etc.).
                 properties:
                   name:
+                    description: Name is the name of the Secret.
                     type: string
                 required:
                 - name
                 type: object
               tls:
+                description: TLS configures TLS termination for the API server.
                 properties:
                   certManager:
+                    description: |-
+                      CertManager configures automatic certificate provisioning via cert-manager.
+                      Mutually exclusive with secretName.
                     properties:
                       dnsNames:
+                        description: DNSNames is the list of DNS SANs to include in
+                          the issued certificate.
                         items:
+                          maxLength: 253
                           type: string
                         type: array
                       issuerKind:
+                        default: ClusterIssuer
+                        description: IssuerKind is the kind of the cert-manager issuer
+                          resource.
+                        enum:
+                        - Issuer
+                        - ClusterIssuer
                         type: string
                       issuerName:
+                        description: IssuerName is the name of the cert-manager Issuer
+                          or ClusterIssuer.
+                        maxLength: 253
                         type: string
+                    required:
+                    - issuerName
                     type: object
+                    x-kubernetes-validations:
+                    - message: certManager.issuerName must be set
+                      rule: self.issuerName != ''
                   enabled:
+                    description: Enabled controls whether TLS termination is configured
+                      for the API server.
                     type: boolean
                   secretName:
+                    description: |-
+                      SecretName is the name of an existing TLS Secret (type kubernetes.io/tls)
+                      containing the certificate and key. Mutually exclusive with certManager.
+                    maxLength: 253
                     type: string
                 type: object
+                x-kubernetes-validations:
+                - message: tls.secretName or tls.certManager must be set when tls.enabled
+                    is true
+                  rule: '!self.enabled || self.secretName != '''' || has(self.certManager)'
+                - message: tls.secretName and tls.certManager are mutually exclusive
+                  rule: '!(self.secretName != '''' && has(self.certManager))'
             required:
             - apiServer
             - gc
@@ -480,15 +766,24 @@ spec:
             - secretRef
             type: object
           status:
+            description: Status defines the observed state of LLMBatchGateway.
             properties:
               componentStatus:
+                description: ComponentStatus reports the replica counts for each managed
+                  component.
                 properties:
                   apiServer:
+                    description: APIServer reports the replica status of the API server
+                      Deployment.
                     properties:
                       readyReplicas:
+                        description: ReadyReplicas is the number of pods that have
+                          passed their readiness checks.
                         format: int32
                         type: integer
                       replicas:
+                        description: Replicas is the total number of non-terminated
+                          pods.
                         format: int32
                         type: integer
                     required:
@@ -496,11 +791,17 @@ spec:
                     - replicas
                     type: object
                   gc:
+                    description: GC reports the replica status of the garbage-collector
+                      Deployment.
                     properties:
                       readyReplicas:
+                        description: ReadyReplicas is the number of pods that have
+                          passed their readiness checks.
                         format: int32
                         type: integer
                       replicas:
+                        description: Replicas is the total number of non-terminated
+                          pods.
                         format: int32
                         type: integer
                     required:
@@ -508,11 +809,17 @@ spec:
                     - replicas
                     type: object
                   processor:
+                    description: Processor reports the replica status of the processor
+                      Deployment.
                     properties:
                       readyReplicas:
+                        description: ReadyReplicas is the number of pods that have
+                          passed their readiness checks.
                         format: int32
                         type: integer
                       replicas:
+                        description: Replicas is the total number of non-terminated
+                          pods.
                         format: int32
                         type: integer
                     required:
@@ -521,6 +828,9 @@ spec:
                     type: object
                 type: object
               conditions:
+                description: |-
+                  Conditions represent the latest available observations of the LLMBatchGateway's state.
+                  Known condition types: Ready, APIServerAvailable, ProcessorAvailable, GCAvailable.
                 items:
                   description: Condition contains details for one aspect of the current
                     state of this API Resource.
@@ -577,9 +887,13 @@ spec:
                   type: object
                 type: array
               observedGeneration:
+                description: ObservedGeneration is the .metadata.generation that was
+                  last processed by the controller.
                 format: int64
                 type: integer
             type: object
+        required:
+        - spec
         type: object
     served: true
     storage: true

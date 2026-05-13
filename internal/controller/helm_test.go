@@ -93,7 +93,6 @@ func TestSpecToHelmValues(t *testing.T) {
 			},
 			DBBackend: "postgresql",
 			FileStorage: &batchv1alpha1.FileStorageSpec{
-				Type: "s3",
 				S3: &batchv1alpha1.S3StorageSpec{
 					Region:   "us-east-1",
 					Endpoint: "https://s3.example.com",
@@ -463,7 +462,6 @@ func minimalGateway() *batchv1alpha1.LLMBatchGateway {
 			},
 			DBBackend: "postgresql",
 			FileStorage: &batchv1alpha1.FileStorageSpec{
-				Type: "s3",
 				S3: &batchv1alpha1.S3StorageSpec{
 					Region:   "us-east-1",
 					Endpoint: "https://s3.example.com",

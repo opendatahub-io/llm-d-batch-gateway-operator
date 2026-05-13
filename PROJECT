@@ -1,8 +1,8 @@
 domain: llm-d.ai
 layout:
 - go.kubebuilder.io/v4
-projectName: batch-gw-operator
-repo: github.com/llm-d-incubation/batch-gw-operator
+projectName: llm-d-batch-gateway-operator
+repo: github.com/opendatahub-io/llm-d-batch-gateway-operator
 version: "3"
 resources:
 - api:
@@ -12,5 +12,5 @@ resources:
   domain: llm-d.ai
   group: batch
   kind: LLMBatchGateway
-  path: github.com/llm-d-incubation/batch-gw-operator/api/v1alpha1
+  path: github.com/opendatahub-io/llm-d-batch-gateway-operator/api/v1alpha1
   version: v1alpha1
