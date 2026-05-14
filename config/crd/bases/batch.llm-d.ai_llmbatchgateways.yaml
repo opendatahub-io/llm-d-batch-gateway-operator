@@ -756,7 +756,7 @@ spec:
                     type: object
                     x-kubernetes-validations:
                     - message: certManager.issuerName must be set
-                      rule: self.issuerName != ''
+                      rule: size(self.issuerName) > 0
                   enabled:
                     description: Enabled controls whether TLS termination is configured
                       for the API server.
@@ -771,9 +771,9 @@ spec:
                 x-kubernetes-validations:
                 - message: tls.secretName or tls.certManager must be set when tls.enabled
                     is true
-                  rule: '!self.enabled || self.secretName != '''' || has(self.certManager)'
+                  rule: '!self.enabled || size(self.secretName) > 0 || has(self.certManager)'
                 - message: tls.secretName and tls.certManager are mutually exclusive
-                  rule: '!(self.secretName != '''' && has(self.certManager))'
+                  rule: '!(size(self.secretName) > 0 && has(self.certManager))'
             required:
             - apiServer
             - gc
@@ -782,7 +782,7 @@ spec:
             type: object
             x-kubernetes-validations:
             - message: spec.secretRef.name is required
-              rule: self.secretRef.name != ''
+              rule: size(self.secretRef.name) > 0
           status:
             description: Status defines the observed state of LLMBatchGateway.
             properties:

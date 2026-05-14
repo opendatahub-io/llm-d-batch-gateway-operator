@@ -18,6 +18,8 @@ import (
 	batchv1alpha1 "github.com/opendatahub-io/llm-d-batch-gateway-operator/api/v1alpha1"
 )
 
+const testSecretValue = "value"
+
 // buildScheme returns a Scheme with all types needed by secret_sync.go.
 func buildScheme(t *testing.T) *runtime.Scheme {
 	t.Helper()
@@ -34,10 +36,10 @@ func buildScheme(t *testing.T) *runtime.Scheme {
 	return s
 }
 
-// makeGrant builds a ReferenceGrant in secretNamespace that allows
+// makeGrant builds a ReferenceGrant in "creds-ns" that allows
 // LLMBatchGateways in fromNamespace to reference a Secret.
 // Pass secretName="" to get a wildcard To entry.
-func makeGrant(name, secretNamespace, fromNamespace, secretName string) *gatewayv1beta1.ReferenceGrant {
+func makeGrant(name, fromNamespace, secretName string) *gatewayv1beta1.ReferenceGrant {
 	to := gatewayv1beta1.ReferenceGrantTo{
 		Group: corev1.GroupName,
 		Kind:  "Secret",
@@ -49,7 +51,7 @@ func makeGrant(name, secretNamespace, fromNamespace, secretName string) *gateway
 	return &gatewayv1beta1.ReferenceGrant{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      name,
-			Namespace: secretNamespace,
+			Namespace: "creds-ns",
 		},
 		Spec: gatewayv1beta1.ReferenceGrantSpec{
 			From: []gatewayv1beta1.ReferenceGrantFrom{{
@@ -74,28 +76,28 @@ func TestReferenceGrantPermits(t *testing.T) {
 	}{
 		{
 			name:          "exact match",
-			grant:         makeGrant("g", "creds-ns", "default", "my-secret"),
+			grant:         makeGrant("g", "default", "my-secret"),
 			fromNamespace: "default",
 			secretName:    "my-secret",
 			want:          true,
 		},
 		{
 			name:          "wildcard to (no name filter)",
-			grant:         makeGrant("g", "creds-ns", "default", ""),
+			grant:         makeGrant("g", "default", ""),
 			fromNamespace: "default",
 			secretName:    "any-secret",
 			want:          true,
 		},
 		{
 			name:          "wrong secret name",
-			grant:         makeGrant("g", "creds-ns", "default", "other-secret"),
+			grant:         makeGrant("g", "default", "other-secret"),
 			fromNamespace: "default",
 			secretName:    "my-secret",
 			want:          false,
 		},
 		{
 			name:          "wrong from namespace",
-			grant:         makeGrant("g", "creds-ns", "other-ns", "my-secret"),
+			grant:         makeGrant("g", "other-ns", "my-secret"),
 			fromNamespace: "default",
 			secretName:    "my-secret",
 			want:          false,
@@ -160,11 +162,11 @@ func TestResolveSecret(t *testing.T) {
 
 	srcSecret := &corev1.Secret{
 		ObjectMeta: metav1.ObjectMeta{Name: secretName, Namespace: credsNS},
-		Data:       map[string][]byte{"key": []byte("value")},
+		Data:       map[string][]byte{"key": []byte(testSecretValue)},
 	}
 
 	gwBase := func(gwName, secretNS, secretNameOverride string) *batchv1alpha1.LLMBatchGateway {
-		gw := newTestGateway(gwName, gwNamespace)
+		gw := newTestGateway(gwName)
 		gw.UID = types.UID(gwName + "-uid")
 		sName := secretName
 		if secretNameOverride != "" {
@@ -230,7 +232,7 @@ func TestResolveSecret(t *testing.T) {
 
 	t.Run("cross-namespace with grant for wrong secret returns error", func(t *testing.T) {
 		s := buildScheme(t)
-		grant := makeGrant("test-grant", credsNS, gwNamespace, "different-secret")
+		grant := makeGrant("test-grant", gwNamespace, "different-secret")
 		c := fake.NewClientBuilder().WithScheme(s).WithObjects(srcSecret, grant).Build()
 		r := &LLMBatchGatewayReconciler{Client: c, Scheme: s}
 
@@ -258,9 +260,9 @@ func TestResolveSecret(t *testing.T) {
 	t.Run("cross-namespace with exact ReferenceGrant copies secret", func(t *testing.T) {
 		src := &corev1.Secret{
 			ObjectMeta: metav1.ObjectMeta{Name: "src-secret-exact", Namespace: credsNS},
-			Data:       map[string][]byte{"key": []byte("value")},
+			Data:       map[string][]byte{"key": []byte(testSecretValue)},
 		}
-		grant := makeGrant("grant-exact", credsNS, gwNamespace, src.Name)
+		grant := makeGrant("grant-exact", gwNamespace, src.Name)
 
 		if err := k8sClient.Create(ctx, src); err != nil {
 			t.Fatalf("creating src secret: %v", err)
@@ -290,8 +292,8 @@ func TestResolveSecret(t *testing.T) {
 		if err := k8sClient.Get(ctx, types.NamespacedName{Name: wantName, Namespace: gwNamespace}, &copied); err != nil {
 			t.Fatalf("getting secret copy: %v", err)
 		}
-		if string(copied.Data["key"]) != "value" {
-			t.Errorf("copy data[key] = %q, want %q", copied.Data["key"], "value")
+		if string(copied.Data["key"]) != testSecretValue {
+			t.Errorf("copy data[key] = %q, want %q", copied.Data["key"], testSecretValue)
 		}
 		wantAnnotation := credsNS + "/" + src.Name
 		if copied.Annotations["batch.llm-d.ai/copied-from"] != wantAnnotation {
@@ -312,9 +314,9 @@ func TestResolveSecret(t *testing.T) {
 	t.Run("cross-namespace with wildcard ReferenceGrant copies secret", func(t *testing.T) {
 		src := &corev1.Secret{
 			ObjectMeta: metav1.ObjectMeta{Name: "src-secret-wildcard", Namespace: credsNS},
-			Data:       map[string][]byte{"key": []byte("value")},
+			Data:       map[string][]byte{"key": []byte(testSecretValue)},
 		}
-		grant := makeGrant("grant-wildcard", credsNS, gwNamespace, "") // wildcard
+		grant := makeGrant("grant-wildcard", gwNamespace, "") // wildcard
 
 		if err := k8sClient.Create(ctx, src); err != nil {
 			t.Fatalf("creating src secret: %v", err)
@@ -344,8 +346,8 @@ func TestResolveSecret(t *testing.T) {
 		if err := k8sClient.Get(ctx, types.NamespacedName{Name: wantName, Namespace: gwNamespace}, &copied); err != nil {
 			t.Fatalf("getting secret copy: %v", err)
 		}
-		if string(copied.Data["key"]) != "value" {
-			t.Errorf("copy data[key] = %q, want %q", copied.Data["key"], "value")
+		if string(copied.Data["key"]) != testSecretValue {
+			t.Errorf("copy data[key] = %q, want %q", copied.Data["key"], testSecretValue)
 		}
 		wantAnnotation := credsNS + "/" + src.Name
 		if copied.Annotations["batch.llm-d.ai/copied-from"] != wantAnnotation {
@@ -373,7 +375,7 @@ func TestResolveSecret(t *testing.T) {
 			ObjectMeta: metav1.ObjectMeta{Name: "src-immutable-2", Namespace: credsNS},
 			Data:       map[string][]byte{"key": []byte("v2")},
 		}
-		grant := makeGrant("grant-immutable", credsNS, gwNamespace, "") // wildcard covers both
+		grant := makeGrant("grant-immutable", gwNamespace, "") // wildcard covers both
 
 		for _, obj := range []client.Object{src1, src2, grant} {
 			if err := k8sClient.Create(ctx, obj); err != nil {

@@ -10,6 +10,22 @@ LOCALBIN ?= $(shell pwd)/bin/k8s
 build:
 	go build -o bin/manager ./cmd/
 
+## Lint & Format
+
+GOLANGCI_LINT ?= go run github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.1.6
+
+.PHONY: fmt
+fmt:
+	go fmt ./...
+
+.PHONY: vet
+vet:
+	go vet ./...
+
+.PHONY: lint
+lint:
+	$(GOLANGCI_LINT) run
+
 ## Code Generation
 
 .PHONY: manifests

@@ -32,10 +32,7 @@ func NewHelmRenderer(chartPath string) (*HelmRenderer, error) {
 }
 
 func (h *HelmRenderer) RenderChart(gw *batchv1alpha1.LLMBatchGateway, secretName string) ([]*unstructured.Unstructured, error) {
-	vals, err := specToHelmValues(gw, secretName)
-	if err != nil {
-		return nil, fmt.Errorf("converting spec to helm values: %w", err)
-	}
+	vals := specToHelmValues(gw, secretName)
 
 	releaseOpts := chartutil.ReleaseOptions{
 		Name:      gw.Name,
@@ -78,7 +75,7 @@ func (h *HelmRenderer) RenderChart(gw *batchv1alpha1.LLMBatchGateway, secretName
 	return objects, nil
 }
 
-func specToHelmValues(gw *batchv1alpha1.LLMBatchGateway, secretName string) (map[string]interface{}, error) {
+func specToHelmValues(gw *batchv1alpha1.LLMBatchGateway, secretName string) map[string]interface{} {
 	vals := map[string]interface{}{}
 
 	// --- Global ---
@@ -317,7 +314,7 @@ func specToHelmValues(gw *batchv1alpha1.LLMBatchGateway, secretName string) (map
 		vals["prometheusRule"] = pr
 	}
 
-	return vals, nil
+	return vals
 }
 
 // splitImage splits an image reference into (repository, tag).

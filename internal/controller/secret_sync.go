@@ -31,11 +31,11 @@ const (
 //
 // Cross-namespace case (secretRef.Namespace != gw.Namespace):
 //
-//	1. Verifies a ReferenceGrant exists in secretRef.Namespace that permits
-//	   this LLMBatchGateway (in gw.Namespace) to reference the named Secret.
-//	2. Reads the source Secret.
-//	3. Creates or updates a managed copy in gw.Namespace owned by the CR.
-//	4. Returns the name of the managed copy.
+//  1. Verifies a ReferenceGrant exists in secretRef.Namespace that permits
+//     this LLMBatchGateway (in gw.Namespace) to reference the named Secret.
+//  2. Reads the source Secret.
+//  3. Creates or updates a managed copy in gw.Namespace owned by the CR.
+//  4. Returns the name of the managed copy.
 //
 // Returns (localSecretName, nil) on success.
 // Returns ("", ErrReferenceNotPermitted) when no valid ReferenceGrant exists.
@@ -62,8 +62,8 @@ func (r *LLMBatchGatewayReconciler) resolveSecret(
 		wantAnnotation := fmt.Sprintf("%s/%s", secretNS, ref.Name)
 		if got := existing.Annotations["batch.llm-d.ai/copied-from"]; got != wantAnnotation {
 			return "", &SecretRefImmutableError{
-				OldRef:      got,
-				NewRef:      wantAnnotation,
+				OldRef: got,
+				NewRef: wantAnnotation,
 			}
 		}
 	}
@@ -199,8 +199,8 @@ func (r *LLMBatchGatewayReconciler) syncSecretCopy(
 // managed Secret copy already exists. The controller refuses to reconcile
 // until the CR is deleted and recreated with the new secretRef.
 type SecretRefImmutableError struct {
-	OldRef      string
-	NewRef      string
+	OldRef string
+	NewRef string
 }
 
 func (e *SecretRefImmutableError) Error() string {
@@ -217,7 +217,7 @@ type ReferenceNotPermittedError struct {
 }
 
 func (e *ReferenceNotPermittedError) Error() string {
-	return fmt.Sprintf("reference not permitted: %s", e.Reason)
+	return "reference not permitted: " + e.Reason
 }
 
 func newReferenceNotPermittedError(gatewayName, secretName, secretNamespace, reason string) *ReferenceNotPermittedError {

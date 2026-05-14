@@ -1,0 +1,64 @@
+version: "2"
+
+run:
+  timeout: 5m
+  allow-parallel-runners: true
+
+formatters:
+  enable:
+    - goimports
+    - gofmt
+
+linters:
+  enable:
+    - bodyclose
+    - copyloopvar
+    - dupword
+    - durationcheck
+    - errcheck
+    - fatcontext
+    - goconst
+    - gocritic
+    - govet
+    - ineffassign
+    - makezero
+    - misspell
+    - nakedret
+    - nilnil
+    - perfsprint
+    - prealloc
+    - revive
+    - staticcheck
+    - unparam
+    - unused
+    - unconvert
+  exclusions:
+    presets:
+      - comments        # suppress missing comment violations on packages and exported symbols
+      - std-error-handling  # suppress unchecked errors on well-known stdlib patterns (e.g. Close())
+  settings:
+    revive: # see https://github.com/mgechev/revive#available-rules for all options
+      rules:
+        - name: blank-imports
+        - name: context-as-argument
+        - name: context-keys-type
+        - name: dot-imports
+        - name: error-return
+        - name: error-strings
+        - name: error-naming
+        - name: errorf
+        - name: if-return
+        - name: increment-decrement
+        - name: indent-error-flow
+        - name: package-comments
+        - name: range
+        - name: receiver-naming
+        - name: time-naming
+        - name: unexported-return
+        - name: var-declaration
+        - name: var-naming
+
+issues:
+  # do not limit the number of issues, ensure even identical are reported
+  max-issues-per-linter: 0
+  max-same-issues: 0

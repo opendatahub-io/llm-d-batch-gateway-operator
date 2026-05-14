@@ -14,11 +14,13 @@ import (
 	batchv1alpha1 "github.com/opendatahub-io/llm-d-batch-gateway-operator/api/v1alpha1"
 )
 
-func newTestGateway(name, namespace string) *batchv1alpha1.LLMBatchGateway {
+const llmBatchGatewayKind = "LLMBatchGateway"
+
+func newTestGateway(name string) *batchv1alpha1.LLMBatchGateway {
 	return &batchv1alpha1.LLMBatchGateway{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      name,
-			Namespace: namespace,
+			Namespace: "default",
 		},
 		Spec: batchv1alpha1.LLMBatchGatewaySpec{
 			SecretRef: corev1.SecretReference{Name: "test-secrets"},
@@ -60,7 +62,7 @@ func TestReconcile(t *testing.T) {
 	reconciler := NewLLMBatchGatewayReconciler(k8sClient, k8sClient.Scheme(), helmRenderer)
 
 	t.Run("creates all child resources", func(t *testing.T) {
-		gw := newTestGateway("test-create", "default")
+		gw := newTestGateway("test-create")
 		if err := k8sClient.Create(ctx, gw); err != nil {
 			t.Fatalf("creating CR: %v", err)
 		}
@@ -141,7 +143,7 @@ func TestReconcile(t *testing.T) {
 	})
 
 	t.Run("sets owner references", func(t *testing.T) {
-		gw := newTestGateway("test-owner", "default")
+		gw := newTestGateway("test-owner")
 		if err := k8sClient.Create(ctx, gw); err != nil {
 			t.Fatalf("creating CR: %v", err)
 		}
@@ -167,7 +169,7 @@ func TestReconcile(t *testing.T) {
 			}
 			found := false
 			for _, ref := range d.OwnerReferences {
-				if ref.UID == gw.UID && ref.Kind == "LLMBatchGateway" && ref.Controller != nil && *ref.Controller {
+				if ref.UID == gw.UID && ref.Kind == llmBatchGatewayKind && ref.Controller != nil && *ref.Controller {
 					found = true
 					break
 				}
@@ -179,7 +181,7 @@ func TestReconcile(t *testing.T) {
 	})
 
 	t.Run("sets status conditions", func(t *testing.T) {
-		gw := newTestGateway("test-status", "default")
+		gw := newTestGateway("test-status")
 		if err := k8sClient.Create(ctx, gw); err != nil {
 			t.Fatalf("creating CR: %v", err)
 		}
@@ -216,7 +218,7 @@ func TestReconcile(t *testing.T) {
 	})
 
 	t.Run("updates on spec change", func(t *testing.T) {
-		gw := newTestGateway("test-update", "default")
+		gw := newTestGateway("test-update")
 		if err := k8sClient.Create(ctx, gw); err != nil {
 			t.Fatalf("creating CR: %v", err)
 		}
@@ -267,7 +269,7 @@ func TestReconcile(t *testing.T) {
 	})
 
 	t.Run("deletes orphaned resources on spec change", func(t *testing.T) {
-		gw := newTestGateway("test-orphan", "default")
+		gw := newTestGateway("test-orphan")
 		gw.Spec.Grafana = &batchv1alpha1.GrafanaSpec{Enabled: true}
 		if err := k8sClient.Create(ctx, gw); err != nil {
 			t.Fatalf("creating CR: %v", err)
@@ -334,7 +336,7 @@ func TestReconcile(t *testing.T) {
 	})
 
 	t.Run("sets ValidationFailed when no inference gateway configured", func(t *testing.T) {
-		gw := newTestGateway("test-validation-none", "default")
+		gw := newTestGateway("test-validation-none")
 		gw.Spec.Processor.GlobalInferenceGateway = nil
 		gw.Spec.Processor.ModelGateways = nil
 		if err := k8sClient.Create(ctx, gw); err != nil {
@@ -377,7 +379,7 @@ func TestReconcile(t *testing.T) {
 	})
 
 	t.Run("sets ValidationFailed when both gateways configured", func(t *testing.T) {
-		gw := newTestGateway("test-validation-both", "default")
+		gw := newTestGateway("test-validation-both")
 		gw.Spec.Processor.GlobalInferenceGateway = &batchv1alpha1.InferenceGatewaySpec{
 			URL: "http://global:8000",
 		}
@@ -418,7 +420,7 @@ func TestReconcile(t *testing.T) {
 	})
 
 	t.Run("sets ReferenceNotPermitted when no ReferenceGrant exists", func(t *testing.T) {
-		gw := newTestGateway("test-refnotpermitted", "default")
+		gw := newTestGateway("test-refnotpermitted")
 		// Cross-namespace secretRef — no ReferenceGrant is present.
 		gw.Spec.SecretRef = corev1.SecretReference{Name: "src-secret", Namespace: "other-ns"}
 		if err := k8sClient.Create(ctx, gw); err != nil {
@@ -469,7 +471,7 @@ func TestReconcile(t *testing.T) {
 		}
 		t.Cleanup(func() { _ = k8sClient.Delete(ctx, existingCopy) })
 
-		gw := newTestGateway(gwName, "default")
+		gw := newTestGateway(gwName)
 		// Cross-namespace secretRef pointing at a different secret than the copy.
 		gw.Spec.SecretRef = corev1.SecretReference{Name: "new-secret", Namespace: "other-ns"}
 		if err := k8sClient.Create(ctx, gw); err != nil {
@@ -503,9 +505,9 @@ func TestReconcile(t *testing.T) {
 	})
 
 	t.Run("does not delete resources owned by a different CR", func(t *testing.T) {
-		gwA := newTestGateway("test-orphan-a", "default")
+		gwA := newTestGateway("test-orphan-a")
 		gwA.Spec.Grafana = &batchv1alpha1.GrafanaSpec{Enabled: true}
-		gwB := newTestGateway("test-orphan-b", "default")
+		gwB := newTestGateway("test-orphan-b")
 		gwB.Spec.Grafana = &batchv1alpha1.GrafanaSpec{Enabled: true}
 
 		if err := k8sClient.Create(ctx, gwA); err != nil {
@@ -586,7 +588,7 @@ func TestConditionHelpers(t *testing.T) {
 }
 
 func TestIsOwnedBy(t *testing.T) {
-	gw := newTestGateway("gw", "default")
+	gw := newTestGateway("gw")
 	gw.UID = "test-uid"
 
 	owned := &corev1.ConfigMap{}

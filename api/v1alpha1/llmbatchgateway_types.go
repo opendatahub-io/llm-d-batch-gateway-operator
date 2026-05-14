@@ -38,7 +38,7 @@ type LLMBatchGatewayList struct {
 }
 
 // LLMBatchGatewaySpec defines the desired state of the batch gateway deployment.
-// +kubebuilder:validation:XValidation:rule="self.secretRef.name != ''",message="spec.secretRef.name is required"
+// +kubebuilder:validation:XValidation:rule="size(self.secretRef.name) > 0",message="spec.secretRef.name is required"
 type LLMBatchGatewaySpec struct {
 	// SecretRef references the Kubernetes Secret that holds runtime credentials
 	// (database URL, S3 keys, inference API key, etc.).
@@ -436,8 +436,8 @@ type OTELSpec struct {
 // --- TLS ---
 
 // TLSSpec configures TLS termination for the API server.
-// +kubebuilder:validation:XValidation:rule="!self.enabled || self.secretName != '' || has(self.certManager)",message="tls.secretName or tls.certManager must be set when tls.enabled is true"
-// +kubebuilder:validation:XValidation:rule="!(self.secretName != '' && has(self.certManager))",message="tls.secretName and tls.certManager are mutually exclusive"
+// +kubebuilder:validation:XValidation:rule="!self.enabled || size(self.secretName) > 0 || has(self.certManager)",message="tls.secretName or tls.certManager must be set when tls.enabled is true"
+// +kubebuilder:validation:XValidation:rule="!(size(self.secretName) > 0 && has(self.certManager))",message="tls.secretName and tls.certManager are mutually exclusive"
 type TLSSpec struct {
 	// Enabled controls whether TLS termination is configured for the API server.
 	Enabled bool `json:"enabled,omitempty"`
@@ -453,7 +453,7 @@ type TLSSpec struct {
 }
 
 // CertManagerSpec configures automatic certificate provisioning via cert-manager.
-// +kubebuilder:validation:XValidation:rule="self.issuerName != ''",message="certManager.issuerName must be set"
+// +kubebuilder:validation:XValidation:rule="size(self.issuerName) > 0",message="certManager.issuerName must be set"
 type CertManagerSpec struct {
 	// IssuerName is the name of the cert-manager Issuer or ClusterIssuer.
 	// +kubebuilder:validation:Required

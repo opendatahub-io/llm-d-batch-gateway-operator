@@ -436,10 +436,10 @@ func validateSpec(gw *batchv1alpha1.LLMBatchGateway) error {
 	hasGlobal := gw.Spec.Processor.GlobalInferenceGateway != nil
 	hasModel := len(gw.Spec.Processor.ModelGateways) > 0
 	if !hasGlobal && !hasModel {
-		return fmt.Errorf("processor must have either globalInferenceGateway or modelGateways configured")
+		return errors.New("processor must have either globalInferenceGateway or modelGateways configured")
 	}
 	if hasGlobal && hasModel {
-		return fmt.Errorf("processor cannot have both globalInferenceGateway and modelGateways configured")
+		return errors.New("processor cannot have both globalInferenceGateway and modelGateways configured")
 	}
 	return nil
 }

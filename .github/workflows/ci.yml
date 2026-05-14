@@ -16,8 +16,24 @@ on:
       - 'Makefile'
 
 jobs:
+  lint:
+    name: Lint
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: true
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - name: Lint
+        run: make lint
+
   test:
-    name: Lint & Test
+    name: Test
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:

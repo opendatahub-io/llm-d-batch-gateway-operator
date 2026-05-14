@@ -16,8 +16,8 @@ func newFilter(entries ...string) *secretWatchFilter {
 	return f
 }
 
-func secretObj(ns, name string) *corev1.Secret {
-	return &corev1.Secret{ObjectMeta: metav1.ObjectMeta{Namespace: ns, Name: name}}
+func secretObj(name string) *corev1.Secret {
+	return &corev1.Secret{ObjectMeta: metav1.ObjectMeta{Namespace: "ns", Name: name}}
 }
 
 func TestSecretWatchFilter_Matches(t *testing.T) {
@@ -59,40 +59,40 @@ func TestSecretWatchFilter_AddRemove(t *testing.T) {
 
 func TestSecretWatchFilter_Create(t *testing.T) {
 	f := newFilter("ns", "tracked")
-	if !f.Create(event.CreateEvent{Object: secretObj("ns", "tracked")}) {
+	if !f.Create(event.CreateEvent{Object: secretObj("tracked")}) {
 		t.Error("Create: expected true for tracked secret")
 	}
-	if f.Create(event.CreateEvent{Object: secretObj("ns", "other")}) {
+	if f.Create(event.CreateEvent{Object: secretObj("other")}) {
 		t.Error("Create: expected false for untracked secret")
 	}
 }
 
 func TestSecretWatchFilter_Update(t *testing.T) {
 	f := newFilter("ns", "tracked")
-	if !f.Update(event.UpdateEvent{ObjectNew: secretObj("ns", "tracked")}) {
+	if !f.Update(event.UpdateEvent{ObjectNew: secretObj("tracked")}) {
 		t.Error("Update: expected true for tracked secret")
 	}
-	if f.Update(event.UpdateEvent{ObjectNew: secretObj("ns", "other")}) {
+	if f.Update(event.UpdateEvent{ObjectNew: secretObj("other")}) {
 		t.Error("Update: expected false for untracked secret")
 	}
 }
 
 func TestSecretWatchFilter_Delete(t *testing.T) {
 	f := newFilter("ns", "tracked")
-	if !f.Delete(event.DeleteEvent{Object: secretObj("ns", "tracked")}) {
+	if !f.Delete(event.DeleteEvent{Object: secretObj("tracked")}) {
 		t.Error("Delete: expected true for tracked secret")
 	}
-	if f.Delete(event.DeleteEvent{Object: secretObj("ns", "other")}) {
+	if f.Delete(event.DeleteEvent{Object: secretObj("other")}) {
 		t.Error("Delete: expected false for untracked secret")
 	}
 }
 
 func TestSecretWatchFilter_Generic(t *testing.T) {
 	f := newFilter("ns", "tracked")
-	if !f.Generic(event.GenericEvent{Object: secretObj("ns", "tracked")}) {
+	if !f.Generic(event.GenericEvent{Object: secretObj("tracked")}) {
 		t.Error("Generic: expected true for tracked secret")
 	}
-	if f.Generic(event.GenericEvent{Object: secretObj("ns", "other")}) {
+	if f.Generic(event.GenericEvent{Object: secretObj("other")}) {
 		t.Error("Generic: expected false for untracked secret")
 	}
 }
