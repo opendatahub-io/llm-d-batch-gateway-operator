@@ -8,6 +8,8 @@ import (
 
 	"k8s.io/apimachinery/pkg/util/json"
 
+	certmanagerv1 "github.com/cert-manager/cert-manager/pkg/apis/certmanager/v1"
+	monitoringv1 "github.com/prometheus-operator/prometheus-operator/pkg/apis/monitoring/v1"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
@@ -429,15 +431,46 @@ func (r *LLMBatchGatewayReconciler) SetupWithManager(mgr ctrl.Manager) error {
 		},
 	)
 
-	return ctrl.NewControllerManagedBy(mgr).
+	c := ctrl.NewControllerManagedBy(mgr).
 		For(&batchv1alpha1.LLMBatchGateway{}).
 		Owns(&appsv1.Deployment{}).
 		Owns(&corev1.Service{}).
 		Owns(&corev1.ConfigMap{}).
 		Owns(&corev1.ServiceAccount{}).
-		Watches(&corev1.Secret{}, enqueueForSecret, builder.WithPredicates(r.secretFilter)).
-		Watches(&gatewayv1beta1.ReferenceGrant{}, enqueueForReferenceGrant).
-		Complete(r)
+		Watches(&corev1.Secret{}, enqueueForSecret, builder.WithPredicates(r.secretFilter))
+
+	mapper := mgr.GetRESTMapper()
+
+	optionalOwns := []client.Object{
+		&gatewayv1beta1.HTTPRoute{},
+		&certmanagerv1.Certificate{},
+		&monitoringv1.ServiceMonitor{},
+		&monitoringv1.PodMonitor{},
+		&monitoringv1.PrometheusRule{},
+	}
+	for _, obj := range optionalOwns {
+		if r.isCRDInstalled(mapper, obj) {
+			c = c.Owns(obj)
+		}
+	}
+
+	if r.isCRDInstalled(mapper, &gatewayv1beta1.ReferenceGrant{}) {
+		c = c.Watches(&gatewayv1beta1.ReferenceGrant{}, enqueueForReferenceGrant)
+	}
+
+	return c.Complete(r)
+}
+
+// isCRDInstalled reports whether the CRD for obj is registered in the cluster.
+// Any mapper error is treated as "not installed" so that optional watches are
+// skipped rather than preventing the operator from starting.
+func (r *LLMBatchGatewayReconciler) isCRDInstalled(mapper meta.RESTMapper, obj client.Object) bool {
+	gvks, _, err := r.Scheme.ObjectKinds(obj)
+	if err != nil || len(gvks) == 0 {
+		return false
+	}
+	_, err = mapper.RESTMapping(gvks[0].GroupKind(), gvks[0].Version)
+	return err == nil
 }
 
 func isControllerOwnedBy(obj metav1.Object, owner *batchv1alpha1.LLMBatchGateway) bool {
