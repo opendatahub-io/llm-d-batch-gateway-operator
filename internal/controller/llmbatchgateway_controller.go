@@ -28,10 +28,10 @@ import (
 )
 
 const (
-	ConditionReady              = "Ready"
-	ConditionAPIServerAvailable = "APIServerAvailable"
-	ConditionProcessorAvailable = "ProcessorAvailable"
-	ConditionGCAvailable        = "GCAvailable"
+	conditionReady              = "Ready"
+	conditionAPIServerAvailable = "APIServerAvailable"
+	conditionProcessorAvailable = "ProcessorAvailable"
+	conditionGCAvailable        = "GCAvailable"
 
 	fieldOwner = "llmbatchgateway-controller"
 
@@ -102,7 +102,7 @@ func (r *LLMBatchGatewayReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 	}
 
 	if err := validateSpec(&gw); err != nil {
-		for _, condType := range []string{ConditionReady, ConditionAPIServerAvailable, ConditionProcessorAvailable} {
+		for _, condType := range []string{conditionReady, conditionAPIServerAvailable, conditionProcessorAvailable} {
 			meta.SetStatusCondition(&gw.Status.Conditions, metav1.Condition{
 				Type:               condType,
 				Status:             metav1.ConditionFalse,
@@ -134,7 +134,7 @@ func (r *LLMBatchGatewayReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 		}
 		if permanent {
 			meta.SetStatusCondition(&gw.Status.Conditions, metav1.Condition{
-				Type:               ConditionReady,
+				Type:               conditionReady,
 				Status:             metav1.ConditionFalse,
 				Reason:             reason,
 				Message:            err.Error(),
@@ -164,7 +164,7 @@ func (r *LLMBatchGatewayReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 	objects, err := r.HelmRenderer.RenderChart(&gw, localSecretName)
 	if err != nil {
 		meta.SetStatusCondition(&gw.Status.Conditions, metav1.Condition{
-			Type:               ConditionReady,
+			Type:               conditionReady,
 			Status:             metav1.ConditionFalse,
 			Reason:             "RenderFailed",
 			Message:            err.Error(),
@@ -312,7 +312,7 @@ func (r *LLMBatchGatewayReconciler) updateStatus(ctx context.Context, gw *batchv
 
 	apiAvailable := componentStatus.APIServer != nil && componentStatus.APIServer.ReadyReplicas >= 1
 	meta.SetStatusCondition(&gw.Status.Conditions, metav1.Condition{
-		Type:               ConditionAPIServerAvailable,
+		Type:               conditionAPIServerAvailable,
 		Status:             conditionStatus(apiAvailable),
 		Reason:             conditionReason(apiAvailable, "Available", "Unavailable"),
 		Message:            conditionMessage(apiAvailable, "API server has at least one ready replica", "API server has no ready replicas"),
@@ -321,7 +321,7 @@ func (r *LLMBatchGatewayReconciler) updateStatus(ctx context.Context, gw *batchv
 
 	procAvailable := componentStatus.Processor != nil && componentStatus.Processor.ReadyReplicas >= 1
 	meta.SetStatusCondition(&gw.Status.Conditions, metav1.Condition{
-		Type:               ConditionProcessorAvailable,
+		Type:               conditionProcessorAvailable,
 		Status:             conditionStatus(procAvailable),
 		Reason:             conditionReason(procAvailable, "Available", "Unavailable"),
 		Message:            conditionMessage(procAvailable, "Processor has at least one ready replica", "Processor has no ready replicas"),
@@ -330,7 +330,7 @@ func (r *LLMBatchGatewayReconciler) updateStatus(ctx context.Context, gw *batchv
 
 	gcAvailable := componentStatus.GC != nil && componentStatus.GC.ReadyReplicas >= 1
 	meta.SetStatusCondition(&gw.Status.Conditions, metav1.Condition{
-		Type:               ConditionGCAvailable,
+		Type:               conditionGCAvailable,
 		Status:             conditionStatus(gcAvailable),
 		Reason:             conditionReason(gcAvailable, "Available", "Unavailable"),
 		Message:            conditionMessage(gcAvailable, "GC has at least one ready replica", "GC has no ready replicas"),
@@ -342,13 +342,13 @@ func (r *LLMBatchGatewayReconciler) updateStatus(ctx context.Context, gw *batchv
 	// Snapshot the previous Ready condition before overwriting it so we can
 	// detect transitions and emit an event only when the state changes.
 	var prevReadyStatus metav1.ConditionStatus
-	prevReady := meta.FindStatusCondition(gw.Status.Conditions, ConditionReady)
+	prevReady := meta.FindStatusCondition(gw.Status.Conditions, conditionReady)
 	if prevReady != nil {
 		prevReadyStatus = prevReady.Status
 	}
 
 	meta.SetStatusCondition(&gw.Status.Conditions, metav1.Condition{
-		Type:               ConditionReady,
+		Type:               conditionReady,
 		Status:             conditionStatus(ready),
 		Reason:             conditionReason(ready, "AllComponentsReady", "ComponentsNotReady"),
 		Message:            conditionMessage(ready, "All components have at least one ready replica", "One or more components have no ready replicas"),

@@ -93,7 +93,7 @@ func TestStatusPatchApply(t *testing.T) {
 
 		conditions := []metav1.Condition{
 			{
-				Type:               ConditionReady,
+				Type:               conditionReady,
 				Status:             metav1.ConditionFalse,
 				Reason:             "TestReason",
 				Message:            "test message",
@@ -118,8 +118,8 @@ func TestStatusPatchApply(t *testing.T) {
 		if len(updated.Status.Conditions) != 1 {
 			t.Fatalf("conditions len = %d, want 1", len(updated.Status.Conditions))
 		}
-		if updated.Status.Conditions[0].Type != ConditionReady {
-			t.Errorf("condition type = %q, want %q", updated.Status.Conditions[0].Type, ConditionReady)
+		if updated.Status.Conditions[0].Type != conditionReady {
+			t.Errorf("condition type = %q, want %q", updated.Status.Conditions[0].Type, conditionReady)
 		}
 		if updated.Status.Conditions[0].Reason != "TestReason" {
 			t.Errorf("condition reason = %q, want %q", updated.Status.Conditions[0].Reason, "TestReason")
@@ -151,7 +151,7 @@ func TestStatusPatchApply(t *testing.T) {
 		// Attempt a status patch using the stale resourceVersion — must fail.
 		conditions := []metav1.Condition{
 			{
-				Type:               ConditionReady,
+				Type:               conditionReady,
 				Status:             metav1.ConditionFalse,
 				Reason:             "StalePatch",
 				Message:            "should not be applied",
