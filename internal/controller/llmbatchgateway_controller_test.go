@@ -2,12 +2,14 @@ package controller
 
 import (
 	"context"
+	"strings"
 	"testing"
 
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/client-go/tools/record"
 	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
@@ -59,7 +61,8 @@ func TestReconcile(t *testing.T) {
 		t.Fatalf("NewHelmRenderer() error: %v", err)
 	}
 
-	reconciler := NewLLMBatchGatewayReconciler(k8sClient, k8sClient.Scheme(), helmRenderer)
+	fakeRecorder := record.NewFakeRecorder(100)
+	reconciler := NewLLMBatchGatewayReconciler(k8sClient, k8sClient.Scheme(), helmRenderer, fakeRecorder)
 
 	t.Run("creates all child resources", func(t *testing.T) {
 		gw := newTestGateway("test-create")
@@ -376,6 +379,8 @@ func TestReconcile(t *testing.T) {
 				t.Errorf("missing condition %s", condType)
 			}
 		}
+
+		assertEvent(t, fakeRecorder, corev1.EventTypeWarning, "ValidationFailed")
 	})
 
 	t.Run("sets ValidationFailed when both gateways configured", func(t *testing.T) {
@@ -447,6 +452,7 @@ func TestReconcile(t *testing.T) {
 				if c.Reason != "ReferenceNotPermitted" {
 					t.Errorf("Ready reason = %q, want ReferenceNotPermitted", c.Reason)
 				}
+				assertEvent(t, fakeRecorder, corev1.EventTypeWarning, "ReferenceNotPermitted")
 				return
 			}
 		}
@@ -498,6 +504,7 @@ func TestReconcile(t *testing.T) {
 				if c.Reason != "SecretRefImmutable" {
 					t.Errorf("Ready reason = %q, want SecretRefImmutable", c.Reason)
 				}
+				assertEvent(t, fakeRecorder, corev1.EventTypeWarning, "SecretRefImmutable")
 				return
 			}
 		}
@@ -611,4 +618,22 @@ func isOwnedByUID(refs []metav1.OwnerReference, uid types.UID) bool {
 		}
 	}
 	return false
+}
+
+// assertEvent drains the fake recorder channel and asserts that at least one
+// event contains both the expected eventType and reason substring.
+func assertEvent(t *testing.T, recorder *record.FakeRecorder, eventType, reason string) {
+	t.Helper()
+	for {
+		select {
+		case got := <-recorder.Events:
+			if strings.Contains(got, eventType) && strings.Contains(got, reason) {
+				return
+			}
+			// Drain other events that don't match (e.g. from previous subtests).
+		default:
+			t.Errorf("expected event with type %q and reason %q but none found", eventType, reason)
+			return
+		}
+	}
 }

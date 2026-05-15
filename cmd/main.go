@@ -68,7 +68,7 @@ func main() {
 		os.Exit(1)
 	}
 
-	if err := controller.NewLLMBatchGatewayReconciler(mgr.GetClient(), mgr.GetScheme(), helmRenderer).SetupWithManager(mgr); err != nil {
+	if err := controller.NewLLMBatchGatewayReconciler(mgr.GetClient(), mgr.GetScheme(), helmRenderer, mgr.GetEventRecorderFor("llmbatchgateway-controller")).SetupWithManager(mgr); err != nil {
 		logger.Error(err, "unable to create controller", "controller", "LLMBatchGateway")
 		os.Exit(1)
 	}

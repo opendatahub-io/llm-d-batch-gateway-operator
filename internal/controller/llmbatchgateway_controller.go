@@ -14,6 +14,7 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/client-go/tools/record"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -71,14 +72,16 @@ type LLMBatchGatewayReconciler struct {
 	client.Client
 	Scheme       *runtime.Scheme
 	HelmRenderer *HelmRenderer
+	Recorder     record.EventRecorder
 	secretFilter *secretWatchFilter
 }
 
-func NewLLMBatchGatewayReconciler(c client.Client, scheme *runtime.Scheme, helm *HelmRenderer) *LLMBatchGatewayReconciler {
+func NewLLMBatchGatewayReconciler(c client.Client, scheme *runtime.Scheme, helm *HelmRenderer, recorder record.EventRecorder) *LLMBatchGatewayReconciler {
 	return &LLMBatchGatewayReconciler{
 		Client:       c,
 		Scheme:       scheme,
 		HelmRenderer: helm,
+		Recorder:     recorder,
 		secretFilter: &secretWatchFilter{watched: make(map[string]struct{})},
 	}
 }
@@ -104,6 +107,7 @@ func (r *LLMBatchGatewayReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 				ObservedGeneration: gw.Generation,
 			})
 		}
+		r.Recorder.Eventf(&gw, corev1.EventTypeWarning, "ValidationFailed", "Spec validation failed: %s", err)
 		if statusErr := r.Status().Update(ctx, &gw); statusErr != nil {
 			return ctrl.Result{}, fmt.Errorf("updating status after validation failure: %w", statusErr)
 		}
@@ -130,6 +134,7 @@ func (r *LLMBatchGatewayReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 				Message:            err.Error(),
 				ObservedGeneration: gw.Generation,
 			})
+			r.Recorder.Eventf(&gw, corev1.EventTypeWarning, reason, "%s", err)
 			if statusErr := r.Status().Update(ctx, &gw); statusErr != nil {
 				return ctrl.Result{}, fmt.Errorf("updating status after %s: %w", reason, statusErr)
 			}
@@ -157,6 +162,7 @@ func (r *LLMBatchGatewayReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 			Message:            err.Error(),
 			ObservedGeneration: gw.Generation,
 		})
+		r.Recorder.Eventf(&gw, corev1.EventTypeWarning, "RenderFailed", "Helm chart render failed: %s", err)
 		if statusErr := r.Status().Update(ctx, &gw); statusErr != nil {
 			logger.Error(statusErr, "failed to update status after render failure")
 		}
@@ -175,6 +181,7 @@ func (r *LLMBatchGatewayReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 				logger.V(1).Info("skipping resource (CRD not installed)", "kind", obj.GetKind(), "name", obj.GetName())
 				continue
 			}
+			r.Recorder.Eventf(&gw, corev1.EventTypeWarning, "ApplyFailed", "Failed to apply %s/%s: %s", obj.GetKind(), obj.GetName(), err)
 			return ctrl.Result{}, fmt.Errorf("applying %s/%s: %w", obj.GetKind(), obj.GetName(), err)
 		}
 		logger.V(2).Info("applied resource", "kind", obj.GetKind(), "name", obj.GetName())
@@ -321,6 +328,15 @@ func (r *LLMBatchGatewayReconciler) updateStatus(ctx context.Context, gw *batchv
 	})
 
 	ready := apiAvailable && procAvailable && gcAvailable
+
+	// Snapshot the previous Ready condition before overwriting it so we can
+	// detect transitions and emit an event only when the state changes.
+	var prevReadyStatus metav1.ConditionStatus
+	prevReady := meta.FindStatusCondition(gw.Status.Conditions, ConditionReady)
+	if prevReady != nil {
+		prevReadyStatus = prevReady.Status
+	}
+
 	meta.SetStatusCondition(&gw.Status.Conditions, metav1.Condition{
 		Type:               ConditionReady,
 		Status:             conditionStatus(ready),
@@ -328,6 +344,15 @@ func (r *LLMBatchGatewayReconciler) updateStatus(ctx context.Context, gw *batchv
 		Message:            conditionMessage(ready, "All components have at least one ready replica", "One or more components have no ready replicas"),
 		ObservedGeneration: gw.Generation,
 	})
+
+	newReadyStatus := conditionStatus(ready)
+	if prevReadyStatus != newReadyStatus {
+		if ready {
+			r.Recorder.Event(gw, corev1.EventTypeNormal, "Ready", "All components have at least one ready replica")
+		} else {
+			r.Recorder.Event(gw, corev1.EventTypeWarning, "NotReady", "One or more components have no ready replicas")
+		}
+	}
 
 	return r.Status().Update(ctx, gw)
 }
