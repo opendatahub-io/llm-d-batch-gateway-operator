@@ -24,8 +24,9 @@ import (
 var version = "dev"
 
 var (
-	scheme            = runtime.NewScheme()
-	syncPeriodDefault = 5 * time.Minute
+	scheme                  = runtime.NewScheme()
+	syncPeriodDefault       = 5 * time.Minute
+	reconcileTimeoutDefault = 30 * time.Second
 )
 
 func init() {
@@ -41,12 +42,14 @@ func main() {
 	var probeAddr string
 	var enableLeaderElection bool
 	var syncPeriod time.Duration
+	var reconcileTimeout time.Duration
 
 	flag.StringVar(&chartPath, "chart-path", "/charts/batch-gateway", "Path to the batch-gateway Helm chart directory")
 	flag.StringVar(&metricsAddr, "metrics-bind-address", ":8080", "Address the metrics endpoint binds to")
 	flag.StringVar(&probeAddr, "health-probe-bind-address", ":8081", "Address the health probe endpoint binds to")
 	flag.BoolVar(&enableLeaderElection, "leader-elect", false, "Enable leader election for controller manager")
 	flag.DurationVar(&syncPeriod, "sync-period", syncPeriodDefault, "How often to re-sync all LLMBatchGateway resources to catch out-of-band drift")
+	flag.DurationVar(&reconcileTimeout, "reconcile-timeout", reconcileTimeoutDefault, "Maximum duration for a single reconcile")
 
 	klog.InitFlags(nil)
 	flag.Parse()
@@ -74,7 +77,7 @@ func main() {
 		os.Exit(1)
 	}
 
-	if err := controller.NewLLMBatchGatewayReconciler(mgr.GetClient(), mgr.GetScheme(), helmRenderer, mgr.GetEventRecorderFor("llmbatchgateway-controller"), syncPeriod).SetupWithManager(mgr); err != nil { //nolint:staticcheck
+	if err := controller.NewLLMBatchGatewayReconciler(mgr.GetClient(), mgr.GetScheme(), helmRenderer, mgr.GetEventRecorderFor("llmbatchgateway-controller"), syncPeriod, reconcileTimeout).SetupWithManager(mgr); err != nil { //nolint:staticcheck
 		logger.Error(err, "unable to create controller", "controller", "LLMBatchGateway")
 		os.Exit(1)
 	}

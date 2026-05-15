@@ -79,25 +79,30 @@ type resourceKey struct {
 
 type LLMBatchGatewayReconciler struct {
 	client.Client
-	Scheme       *runtime.Scheme
-	HelmRenderer *HelmRenderer
-	Recorder     record.EventRecorder
-	SyncPeriod   time.Duration
-	secretFilter *secretWatchFilter
+	Scheme           *runtime.Scheme
+	HelmRenderer     *HelmRenderer
+	Recorder         record.EventRecorder
+	ReconcileTimeout time.Duration
+	SyncPeriod       time.Duration
+	secretFilter     *secretWatchFilter
 }
 
-func NewLLMBatchGatewayReconciler(c client.Client, scheme *runtime.Scheme, helm *HelmRenderer, recorder record.EventRecorder, syncPeriod time.Duration) *LLMBatchGatewayReconciler {
+func NewLLMBatchGatewayReconciler(c client.Client, scheme *runtime.Scheme, helm *HelmRenderer, recorder record.EventRecorder, syncPeriod time.Duration, reconcileTimeout time.Duration) *LLMBatchGatewayReconciler {
 	return &LLMBatchGatewayReconciler{
-		Client:       c,
-		Scheme:       scheme,
-		HelmRenderer: helm,
-		Recorder:     recorder,
-		SyncPeriod:   syncPeriod,
-		secretFilter: &secretWatchFilter{watched: make(map[string]struct{})},
+		Client:           c,
+		Scheme:           scheme,
+		HelmRenderer:     helm,
+		Recorder:         recorder,
+		ReconcileTimeout: reconcileTimeout,
+		SyncPeriod:       syncPeriod,
+		secretFilter:     &secretWatchFilter{watched: make(map[string]struct{})},
 	}
 }
 
 func (r *LLMBatchGatewayReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
+	ctx, cancel := context.WithTimeout(ctx, r.ReconcileTimeout)
+	defer cancel()
+
 	logger := log.FromContext(ctx)
 
 	var gw batchv1alpha1.LLMBatchGateway

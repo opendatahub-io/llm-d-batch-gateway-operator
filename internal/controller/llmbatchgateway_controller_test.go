@@ -2,6 +2,7 @@ package controller
 
 import (
 	"context"
+	"errors"
 	"strings"
 	"testing"
 	"time"
@@ -63,7 +64,10 @@ func TestReconcile(t *testing.T) {
 	}
 
 	fakeRecorder := record.NewFakeRecorder(100)
-	reconciler := NewLLMBatchGatewayReconciler(k8sClient, k8sClient.Scheme(), helmRenderer, fakeRecorder, 5*time.Minute)
+	resyncTimeout := 5 * time.Minute
+	reconcileTimeout := 30 * time.Second
+
+	reconciler := NewLLMBatchGatewayReconciler(k8sClient, k8sClient.Scheme(), helmRenderer, fakeRecorder, resyncTimeout, reconcileTimeout)
 
 	t.Run("returns RequeueAfter on successful reconcile", func(t *testing.T) {
 		gw := newTestGateway("test-requeue")
@@ -78,8 +82,8 @@ func TestReconcile(t *testing.T) {
 		if err != nil {
 			t.Fatalf("Reconcile() error: %v", err)
 		}
-		if result.RequeueAfter != 5*time.Minute {
-			t.Errorf("RequeueAfter = %v, want %v", result.RequeueAfter, 5*time.Minute)
+		if result.RequeueAfter != resyncTimeout {
+			t.Errorf("RequeueAfter = %v, want %v", result.RequeueAfter, resyncTimeout)
 		}
 	})
 
@@ -637,6 +641,37 @@ func isOwnedByUID(refs []metav1.OwnerReference, uid types.UID) bool {
 		}
 	}
 	return false
+}
+
+func TestReconcileTimeout(t *testing.T) {
+	ctx := context.Background()
+
+	helmRenderer, err := NewHelmRenderer("../../batch-gateway/charts/batch-gateway")
+	if err != nil {
+		t.Fatalf("NewHelmRenderer() error: %v", err)
+	}
+
+	fakeRecorder := record.NewFakeRecorder(100)
+	resyncTimeout := 5 * time.Minute
+	reconcileTimeout := -1 * time.Second
+	// Use a 1ns timeout so the context is expired before the first API call.
+	reconciler := NewLLMBatchGatewayReconciler(k8sClient, k8sClient.Scheme(), helmRenderer, fakeRecorder, resyncTimeout, reconcileTimeout)
+
+	gw := newTestGateway("test-timeout")
+	if err := k8sClient.Create(ctx, gw); err != nil {
+		t.Fatalf("creating CR: %v", err)
+	}
+	t.Cleanup(func() { _ = k8sClient.Delete(ctx, gw) })
+
+	_, err = reconciler.Reconcile(ctx, reconcile.Request{
+		NamespacedName: types.NamespacedName{Name: gw.Name, Namespace: gw.Namespace},
+	})
+	if err == nil {
+		t.Fatal("Reconcile() expected error due to timeout, got nil")
+	}
+	if !errors.Is(err, context.DeadlineExceeded) {
+		t.Errorf("Reconcile() error = %v, want context.DeadlineExceeded", err)
+	}
 }
 
 // assertEvent drains the fake recorder channel and asserts that at least one
