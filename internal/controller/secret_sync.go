@@ -186,10 +186,7 @@ func (r *LLMBatchGatewayReconciler) syncSecretCopy(
 		return fmt.Errorf("setting owner reference on secret copy %s/%s: %w", gw.Namespace, localName, err)
 	}
 
-	if err := r.Patch(ctx, desired, client.Apply,
-		client.FieldOwner(fieldOwner),
-		client.ForceOwnership,
-	); err != nil {
+	if err := serverSideApply(ctx, r.Client, desired, fieldOwner); err != nil {
 		return fmt.Errorf("syncing secret copy %s/%s: %w", gw.Namespace, localName, err)
 	}
 	return nil
