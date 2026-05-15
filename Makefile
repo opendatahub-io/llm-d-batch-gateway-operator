@@ -5,6 +5,12 @@ ENVTEST ?= go run sigs.k8s.io/controller-runtime/tools/setup-envtest@release-0.2
 ENVTEST_K8S_VERSION ?= 1.33.0
 LOCALBIN ?= $(shell pwd)/bin/k8s
 
+## Deps
+
+.PHONY: deps
+deps:
+	go mod tidy -v
+
 ## Build
 
 .PHONY: build
