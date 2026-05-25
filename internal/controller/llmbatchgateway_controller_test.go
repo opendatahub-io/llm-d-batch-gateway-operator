@@ -18,7 +18,10 @@ import (
 	batchv1alpha1 "github.com/opendatahub-io/llm-d-batch-gateway-operator/api/v1alpha1"
 )
 
-const llmBatchGatewayKind = "LLMBatchGateway"
+const (
+	llmBatchGatewayKind = "LLMBatchGateway"
+	secretKind          = "Secret"
+)
 
 func newTestGateway(name string) *batchv1alpha1.LLMBatchGateway {
 	return &batchv1alpha1.LLMBatchGateway{
@@ -472,10 +475,10 @@ func TestReconcile(t *testing.T) {
 				if c.Status != metav1.ConditionFalse {
 					t.Errorf("Ready status = %v, want False", c.Status)
 				}
-				if c.Reason != "ReferenceNotPermitted" {
-					t.Errorf("Ready reason = %q, want ReferenceNotPermitted", c.Reason)
+				if c.Reason != reasonReferenceNotPermitted {
+					t.Errorf("Ready reason = %q, want %q", c.Reason, reasonReferenceNotPermitted)
 				}
-				assertEvent(t, fakeRecorder, corev1.EventTypeWarning, "ReferenceNotPermitted")
+				assertEvent(t, fakeRecorder, corev1.EventTypeWarning, reasonReferenceNotPermitted)
 				return
 			}
 		}
@@ -524,10 +527,10 @@ func TestReconcile(t *testing.T) {
 				if c.Status != metav1.ConditionFalse {
 					t.Errorf("Ready status = %v, want False", c.Status)
 				}
-				if c.Reason != "SecretRefImmutable" {
-					t.Errorf("Ready reason = %q, want SecretRefImmutable", c.Reason)
+				if c.Reason != reasonSecretRefImmutable {
+					t.Errorf("Ready reason = %q, want %q", c.Reason, reasonSecretRefImmutable)
 				}
-				assertEvent(t, fakeRecorder, corev1.EventTypeWarning, "SecretRefImmutable")
+				assertEvent(t, fakeRecorder, corev1.EventTypeWarning, reasonSecretRefImmutable)
 				return
 			}
 		}

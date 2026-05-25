@@ -28,6 +28,7 @@ import (
 	gatewayv1beta1 "sigs.k8s.io/gateway-api/apis/v1beta1"
 
 	batchv1alpha1 "github.com/opendatahub-io/llm-d-batch-gateway-operator/api/v1alpha1"
+	"github.com/opendatahub-io/llm-d-batch-gateway-operator/internal/monitoring"
 	"github.com/opendatahub-io/llm-d-batch-gateway-operator/internal/utils"
 )
 
@@ -40,6 +41,9 @@ const (
 	conditionsStatusField         = "conditions"
 	componentStatusField          = "componentStatus"
 	observedGenerationStatusField = "observedGeneration"
+
+	reasonReferenceNotPermitted = "ReferenceNotPermitted"
+	reasonSecretRefImmutable    = "SecretRefImmutable"
 )
 
 // managedGVKs must be a superset of all GVK types the Helm chart can produce.
@@ -74,6 +78,8 @@ type resourceKey struct {
 // +kubebuilder:rbac:groups=monitoring.coreos.com,resources=servicemonitors;podmonitors;prometheusrules,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups="",resources=events,verbs=create;patch
 
+var _ reconcile.Reconciler = (*LLMBatchGatewayReconciler)(nil)
+
 type LLMBatchGatewayReconciler struct {
 	client.Client
 	Scheme           *runtime.Scheme
@@ -100,6 +106,28 @@ func (r *LLMBatchGatewayReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 	ctx, cancel := context.WithTimeout(ctx, r.ReconcileTimeout)
 	defer cancel()
 
+	result, err := r.reconcile(ctx, req)
+	if err != nil {
+		monitoring.ReconcileErrors.WithLabelValues(errorReason(err)).Inc()
+	}
+	return result, err
+}
+
+// errorReason extracts a short reason string from an error for use as a metric label.
+func errorReason(err error) string {
+	var refErr *ReferenceNotPermittedError
+	var immutableErr *SecretRefImmutableError
+	switch {
+	case errors.As(err, &refErr):
+		return reasonReferenceNotPermitted
+	case errors.As(err, &immutableErr):
+		return reasonSecretRefImmutable
+	default:
+		return "Other"
+	}
+}
+
+func (r *LLMBatchGatewayReconciler) reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	logger := log.FromContext(ctx)
 
 	var gw batchv1alpha1.LLMBatchGateway
@@ -137,9 +165,9 @@ func (r *LLMBatchGatewayReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 		var immutableErr *SecretRefImmutableError
 		reason, permanent := "", false
 		if errors.As(err, &refErr) {
-			reason, permanent = "ReferenceNotPermitted", true
+			reason, permanent = reasonReferenceNotPermitted, true
 		} else if errors.As(err, &immutableErr) {
-			reason, permanent = "SecretRefImmutable", true
+			reason, permanent = reasonSecretRefImmutable, true
 		}
 		if permanent {
 			meta.SetStatusCondition(&gw.Status.Conditions, metav1.Condition{
@@ -529,6 +557,3 @@ func conditionMessage(ok bool, trueMsg, falseMsg string) string {
 	}
 	return falseMsg
 }
-
-
-ar _ reconcile.Reconciler = (*LLMBatchGatewayReconciler)(nil)

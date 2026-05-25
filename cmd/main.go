@@ -15,14 +15,20 @@ import (
 	gatewayv1 "sigs.k8s.io/gateway-api/apis/v1"
 	gatewayv1beta1 "sigs.k8s.io/gateway-api/apis/v1beta1"
 
+	monitoringv1 "github.com/prometheus-operator/prometheus-operator/pkg/apis/monitoring/v1"
+
 	batchv1alpha1 "github.com/opendatahub-io/llm-d-batch-gateway-operator/api/v1alpha1"
-	"github.com/opendatahub-io/llm-d-batch-gateway-operator/internal/utils"
 	"github.com/opendatahub-io/llm-d-batch-gateway-operator/internal/controller"
+	"github.com/opendatahub-io/llm-d-batch-gateway-operator/internal/monitoring"
+	"github.com/opendatahub-io/llm-d-batch-gateway-operator/internal/utils"
 )
 
 // version is stamped at build time via -ldflags "-X main.version=<version>".
 // It defaults to "dev" when built without the flag (e.g. go run).
 var version = "dev"
+
+// +kubebuilder:rbac:groups="",resources=services,verbs=get;create;update;patch
+// +kubebuilder:rbac:groups=monitoring.coreos.com,resources=servicemonitors;prometheusrules,verbs=get;create;update;patch
 
 var (
 	scheme                  = runtime.NewScheme()
@@ -35,6 +41,7 @@ func init() {
 	utilruntime.Must(batchv1alpha1.AddToScheme(scheme))
 	utilruntime.Must(gatewayv1.Install(scheme))
 	utilruntime.Must(gatewayv1beta1.Install(scheme))
+	utilruntime.Must(monitoringv1.AddToScheme(scheme))
 }
 
 func main() {
@@ -46,7 +53,7 @@ func main() {
 	var reconcileTimeout time.Duration
 
 	flag.StringVar(&chartPath, "chart-path", "/charts/batch-gateway", "Path to the batch-gateway Helm chart directory")
-	flag.StringVar(&metricsAddr, "metrics-bind-address", ":8080", "Address the metrics endpoint binds to")
+	flag.StringVar(&metricsAddr, "metrics-bind-address", ":8443", "Address the metrics endpoint binds to")
 	flag.StringVar(&probeAddr, "health-probe-bind-address", ":8081", "Address the health probe endpoint binds to")
 	flag.BoolVar(&enableLeaderElection, "leader-elect", false, "Enable leader election for controller manager")
 	flag.DurationVar(&syncPeriod, "sync-period", syncPeriodDefault, "How often to re-sync all LLMBatchGateway resources to catch out-of-band drift")
@@ -78,7 +85,9 @@ func main() {
 		os.Exit(1)
 	}
 
-	if err := controller.NewLLMBatchGatewayReconciler(mgr.GetClient(), mgr.GetScheme(), helmRenderer, mgr.GetEventRecorderFor("llmbatchgateway-controller"), syncPeriod, reconcileTimeout).SetupWithManager(mgr); err != nil { //nolint:staticcheck
+	recorder := mgr.GetEventRecorderFor("llmbatchgateway-controller") //nolint:staticcheck
+
+	if err := controller.NewLLMBatchGatewayReconciler(mgr.GetClient(), mgr.GetScheme(), helmRenderer, recorder, syncPeriod, reconcileTimeout).SetupWithManager(mgr); err != nil {
 		logger.Error(err, "unable to create controller", "controller", "LLMBatchGateway")
 		os.Exit(1)
 	}
@@ -90,6 +99,21 @@ func main() {
 	if err := mgr.AddReadyzCheck("readyz", healthz.Ping); err != nil {
 		logger.Error(err, "unable to set up ready check")
 		os.Exit(1)
+	}
+
+	operatorNamespace := os.Getenv("POD_NAMESPACE")
+	if operatorNamespace != "" {
+		metricsController := &monitoring.MetricsController{
+			Client:    mgr.GetClient(),
+			Namespace: operatorNamespace,
+			Recorder:  recorder,
+		}
+		if err := metricsController.SetupWithManager(mgr); err != nil {
+			logger.Error(err, "unable to create controller", "controller", "MetricsController")
+			os.Exit(1)
+		}
+	} else {
+		logger.Info("POD_NAMESPACE not set, skipping metrics controller reconciliation")
 	}
 
 	logger.Info("starting manager", "version", version)

@@ -25,10 +25,16 @@ spec:
         args:
         - --leader-elect
         - --chart-path=/charts/batch-gateway
+        env:
+        - name: POD_NAMESPACE
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.namespace
         ports:
-        - containerPort: 8080
+        - containerPort: 8443
           name: metrics
           protocol: TCP
+
         - containerPort: 8081
           name: health
           protocol: TCP

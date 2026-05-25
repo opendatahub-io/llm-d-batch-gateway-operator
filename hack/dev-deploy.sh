@@ -15,6 +15,9 @@ MINIO_ACCESS_KEY="${MINIO_ACCESS_KEY:-minioadmin}"
 MINIO_SECRET_KEY="${MINIO_SECRET_KEY:-minioadmin}"
 MINIO_REGION="${MINIO_REGION:-us-east-1}"
 
+GATEWAY_API_VERSION="${GATEWAY_API_VERSION:-}"
+PROMETHEUS_OPERATOR_VERSION="${PROMETHEUS_OPERATOR_VERSION:-}"
+
 APISERVER_IMG="${APISERVER_IMG:-ghcr.io/llm-d-incubation/batch-gateway-apiserver:latest}"
 PROCESSOR_IMG="${PROCESSOR_IMG:-ghcr.io/llm-d-incubation/batch-gateway-processor:latest}"
 GC_IMG="${GC_IMG:-ghcr.io/llm-d-incubation/batch-gateway-gc:latest}"
@@ -218,6 +221,30 @@ install_gateway_api_crds() {
     kubectl apply -f "https://github.com/kubernetes-sigs/gateway-api/releases/download/${version}/standard-install.yaml"
 
     log "Gateway API CRDs installed."
+}
+
+install_prometheus_operator_crds() {
+    step "Installing Prometheus Operator CRDs..."
+
+    local version="${PROMETHEUS_OPERATOR_VERSION:-}"
+    if [ -z "${version}" ]; then
+        local curl_args=(-fsSL)
+        if [ -n "${GITHUB_TOKEN:-}" ]; then
+            curl_args+=(-H "Authorization: Bearer ${GITHUB_TOKEN}")
+        fi
+        version=$(curl "${curl_args[@]}" https://api.github.com/repos/prometheus-operator/prometheus-operator/releases/latest \
+            | sed -n 's/.*"tag_name": *"\([^"]*\)".*/\1/p' | head -n1)
+    fi
+
+    if [ -z "${version}" ]; then
+        die "Could not determine Prometheus Operator version (set PROMETHEUS_OPERATOR_VERSION to override)."
+    fi
+
+    log "Prometheus Operator version: ${version}"
+
+    kubectl apply --server-side -f "https://github.com/prometheus-operator/prometheus-operator/releases/download/${version}/stripped-down-crds.yaml"
+
+    log "Prometheus Operator CRDs installed."
 }
 
 install_vllm_sim() {
@@ -457,6 +484,7 @@ main() {
     build_operator
     ensure_cluster
     install_gateway_api_crds
+    install_prometheus_operator_crds
     install_postgresql
     install_redis
     install_minio

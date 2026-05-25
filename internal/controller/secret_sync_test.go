@@ -42,7 +42,7 @@ func buildScheme(t *testing.T) *runtime.Scheme {
 func makeGrant(name, fromNamespace, secretName string) *gatewayv1beta1.ReferenceGrant {
 	to := gatewayv1beta1.ReferenceGrantTo{
 		Group: corev1.GroupName,
-		Kind:  "Secret",
+		Kind:  secretKind,
 	}
 	if secretName != "" {
 		n := gatewayv1beta1.ObjectName(secretName)
@@ -56,7 +56,7 @@ func makeGrant(name, fromNamespace, secretName string) *gatewayv1beta1.Reference
 		Spec: gatewayv1beta1.ReferenceGrantSpec{
 			From: []gatewayv1beta1.ReferenceGrantFrom{{
 				Group:     gatewayv1beta1.Group(batchv1alpha1.GroupVersion.Group),
-				Kind:      "LLMBatchGateway",
+				Kind:      llmBatchGatewayKind,
 				Namespace: gatewayv1beta1.Namespace(fromNamespace),
 			}},
 			To: []gatewayv1beta1.ReferenceGrantTo{to},
@@ -109,10 +109,10 @@ func TestReferenceGrantPermits(t *testing.T) {
 				Spec: gatewayv1beta1.ReferenceGrantSpec{
 					From: []gatewayv1beta1.ReferenceGrantFrom{{
 						Group:     "wrong.group.io",
-						Kind:      "LLMBatchGateway",
+						Kind:      llmBatchGatewayKind,
 						Namespace: "default",
 					}},
-					To: []gatewayv1beta1.ReferenceGrantTo{{Group: "", Kind: "Secret"}},
+					To: []gatewayv1beta1.ReferenceGrantTo{{Group: "", Kind: secretKind}},
 				},
 			},
 			fromNamespace: "default",
@@ -126,7 +126,7 @@ func TestReferenceGrantPermits(t *testing.T) {
 				Spec: gatewayv1beta1.ReferenceGrantSpec{
 					From: []gatewayv1beta1.ReferenceGrantFrom{{
 						Group:     gatewayv1beta1.Group(batchv1alpha1.GroupVersion.Group),
-						Kind:      "LLMBatchGateway",
+						Kind:      llmBatchGatewayKind,
 						Namespace: "default",
 					}},
 					To: []gatewayv1beta1.ReferenceGrantTo{{Group: "", Kind: "ConfigMap"}},
