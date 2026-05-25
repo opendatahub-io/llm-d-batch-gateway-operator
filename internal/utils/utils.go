@@ -34,7 +34,7 @@ func IsCRDInstalled(mapper meta.RESTMapper, scheme *runtime.Scheme, obj client.O
 
 const (
 	// OperatorName is the app.kubernetes.io/name label value for the operator.
-	OperatorName = "batch-gw-operator"
+	OperatorName = "batch-gateway-operator"
 
 	// FieldOwner is the server-side apply field manager name used by the operator.
 	FieldOwner = "llmbatchgateway-controller"
