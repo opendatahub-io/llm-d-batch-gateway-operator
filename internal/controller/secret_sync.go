@@ -14,6 +14,7 @@ import (
 	gatewayv1beta1 "sigs.k8s.io/gateway-api/apis/v1beta1"
 
 	batchv1alpha1 "github.com/opendatahub-io/llm-d-batch-gateway-operator/api/v1alpha1"
+	"github.com/opendatahub-io/llm-d-batch-gateway-operator/internal/common"
 )
 
 const (
@@ -186,7 +187,7 @@ func (r *LLMBatchGatewayReconciler) syncSecretCopy(
 		return fmt.Errorf("setting owner reference on secret copy %s/%s: %w", gw.Namespace, localName, err)
 	}
 
-	if err := serverSideApply(ctx, r.Client, desired, fieldOwner); err != nil {
+	if err := utils.ServerSideApply(ctx, r.Client, desired); err != nil {
 		return fmt.Errorf("syncing secret copy %s/%s: %w", gw.Namespace, localName, err)
 	}
 	return nil

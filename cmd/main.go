@@ -16,6 +16,7 @@ import (
 	gatewayv1beta1 "sigs.k8s.io/gateway-api/apis/v1beta1"
 
 	batchv1alpha1 "github.com/opendatahub-io/llm-d-batch-gateway-operator/api/v1alpha1"
+	"github.com/opendatahub-io/llm-d-batch-gateway-operator/internal/utils"
 	"github.com/opendatahub-io/llm-d-batch-gateway-operator/internal/controller"
 )
 
@@ -64,7 +65,7 @@ func main() {
 		},
 		HealthProbeBindAddress: probeAddr,
 		LeaderElection:         enableLeaderElection,
-		LeaderElectionID:       "llmbatchgateway.batch.llm-d.ai",
+		LeaderElectionID:       utils.LeaderElectionID,
 	})
 	if err != nil {
 		logger.Error(err, "unable to create manager")

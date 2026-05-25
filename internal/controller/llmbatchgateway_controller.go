@@ -6,8 +6,6 @@ import (
 	"fmt"
 	"time"
 
-	"k8s.io/apimachinery/pkg/util/json"
-
 	certmanagerv1 "github.com/cert-manager/cert-manager/pkg/apis/certmanager/v1"
 	monitoringv1 "github.com/prometheus-operator/prometheus-operator/pkg/apis/monitoring/v1"
 	appsv1 "k8s.io/api/apps/v1"
@@ -30,6 +28,7 @@ import (
 	gatewayv1beta1 "sigs.k8s.io/gateway-api/apis/v1beta1"
 
 	batchv1alpha1 "github.com/opendatahub-io/llm-d-batch-gateway-operator/api/v1alpha1"
+	"github.com/opendatahub-io/llm-d-batch-gateway-operator/internal/utils"
 )
 
 const (
@@ -37,8 +36,6 @@ const (
 	conditionAPIServerAvailable = "APIServerAvailable"
 	conditionProcessorAvailable = "ProcessorAvailable"
 	conditionGCAvailable        = "GCAvailable"
-
-	fieldOwner = "llmbatchgateway-controller"
 
 	conditionsStatusField         = "conditions"
 	componentStatusField          = "componentStatus"
@@ -198,7 +195,7 @@ func (r *LLMBatchGatewayReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 			return ctrl.Result{}, fmt.Errorf("setting owner reference on %s/%s: %w", obj.GetKind(), obj.GetName(), err)
 		}
 
-		if err := serverSideApply(ctx, r.Client, obj, fieldOwner); err != nil {
+		if err := utils.ServerSideApply(ctx, r.Client, obj); err != nil {
 			if apierrors.IsNotFound(err) || meta.IsNoMatchError(err) {
 				logger.V(1).Info("skipping resource (CRD not installed)", "kind", obj.GetKind(), "name", obj.GetName())
 				continue
@@ -533,13 +530,5 @@ func conditionMessage(ok bool, trueMsg, falseMsg string) string {
 	return falseMsg
 }
 
-// serverSideApply marshals obj to JSON and applies it via server-side apply.
-func serverSideApply(ctx context.Context, c client.Client, obj client.Object, fieldOwner string) error {
-	data, err := json.Marshal(obj)
-	if err != nil {
-		return fmt.Errorf("marshalling: %w", err)
-	}
-	return c.Patch(ctx, obj, client.RawPatch(types.ApplyPatchType, data), client.FieldOwner(fieldOwner), client.ForceOwnership)
-}
 
-var _ reconcile.Reconciler = (*LLMBatchGatewayReconciler)(nil)
+ar _ reconcile.Reconciler = (*LLMBatchGatewayReconciler)(nil)
