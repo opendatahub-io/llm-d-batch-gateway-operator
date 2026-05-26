@@ -77,6 +77,21 @@ install: manifests
 uninstall:
 	kubectl delete -f config/crd/bases/
 
+## Kustomize
+
+KUSTOMIZE_VERSION ?= v5.8.1
+KUSTOMIZE ?= $(shell pwd)/bin/kustomize
+
+.PHONY: kustomize
+kustomize: ## Install kustomize locally
+	@test -s $(KUSTOMIZE) || \
+		GOBIN=$(shell pwd)/bin go install sigs.k8s.io/kustomize/kustomize/v5@$(KUSTOMIZE_VERSION)
+
+.PHONY: verify-manifests
+verify-manifests: kustomize ## Verify that all manifest builds succeed
+	@echo "Running manifest verification script..."
+	@bash test/scripts/verify-manifests.sh
+
 ## Deploy (kustomize)
 
 .PHONY: deploy
