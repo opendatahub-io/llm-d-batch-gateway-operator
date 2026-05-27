@@ -1,11 +1,11 @@
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: batch-gw-operator-controller-manager
+  name: batch-gateway-operator-controller-manager
   namespace: system
   labels:
     control-plane: controller-manager
-    app.kubernetes.io/name: batch-gw-operator
+    app.kubernetes.io/name: batch-gateway-operator
     app.kubernetes.io/managed-by: kustomize
 spec:
   replicas: 1
@@ -16,7 +16,7 @@ spec:
     metadata:
       labels:
         control-plane: controller-manager
-        app.kubernetes.io/name: batch-gw-operator
+        app.kubernetes.io/name: batch-gateway-operator
     spec:
       containers:
       - name: manager
@@ -57,7 +57,7 @@ spec:
             drop:
             - ALL
           readOnlyRootFilesystem: true
-      serviceAccountName: batch-gw-operator-controller-manager
+      serviceAccountName: batch-gateway-operator-controller-manager
       securityContext:
         runAsNonRoot: true
         seccompProfile:

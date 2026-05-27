@@ -20,7 +20,7 @@ on:
       - 'Makefile'
 
 env:
-  OPERATOR_IMG: "localhost/batch-gw-operator:ci"
+  OPERATOR_IMG: "localhost/batch-gateway-operator:ci"
   KIND_CLUSTER_NAME: "batch-gateway-ci"
 
 jobs:

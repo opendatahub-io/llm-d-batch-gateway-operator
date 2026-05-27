@@ -8,7 +8,7 @@ OPERATOR_DIR="$(cd "${SCRIPT_DIR}/.." && pwd)"
 
 KIND_CLUSTER_NAME="${KIND_CLUSTER_NAME:-batch-gateway-dev}"
 NAMESPACE="${NAMESPACE:-default}"
-OPERATOR_IMG="${OPERATOR_IMG:-localhost/batch-gw-operator:dev}"
+OPERATOR_IMG="${OPERATOR_IMG:-localhost/batch-gateway-operator:dev}"
 
 POSTGRESQL_PASSWORD="${POSTGRESQL_PASSWORD:-postgres}"
 MINIO_ACCESS_KEY="${MINIO_ACCESS_KEY:-minioadmin}"
@@ -322,12 +322,12 @@ deploy_operator() {
     step "Installing CRD and deploying operator..."
     cd "${OPERATOR_DIR}"
 
-    kubectl create namespace batch-gw-operator-system 2>/dev/null || true
+    kubectl create namespace batch-gateway-operator-system 2>/dev/null || true
     make install
     IMG="${OPERATOR_IMG}" make deploy
 
     kubectl rollout status deployment -l control-plane=controller-manager \
-        -n batch-gw-operator-system --timeout=120s
+        -n batch-gateway-operator-system --timeout=120s
 
     log "Operator deployed."
 }
@@ -421,7 +421,7 @@ print_status() {
     step "Deployment complete!"
     echo ""
     echo "  Operator:"
-    kubectl get pods -n batch-gw-operator-system
+    kubectl get pods -n batch-gateway-operator-system
     echo ""
     echo "  Batch Gateway:"
     kubectl get pods -n "${NAMESPACE}" -l "app.kubernetes.io/instance=batch-gateway"

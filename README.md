@@ -162,7 +162,7 @@ This creates a Kind cluster and deploys PostgreSQL, Redis, MinIO, a vLLM simulat
 |----------|---------|-------------|
 | `KIND_CLUSTER_NAME` | `batch-gateway-dev` | Kind cluster name |
 | `NAMESPACE` | `default` | Target namespace |
-| `OPERATOR_IMG` | `localhost/batch-gw-operator:dev` | Operator image |
+| `OPERATOR_IMG` | `localhost/batch-gateway-operator:dev` | Operator image |
 | `POSTGRESQL_PASSWORD` | `postgres` | PostgreSQL password |
 | `MINIO_ACCESS_KEY` | `minioadmin` | MinIO access key |
 | `MINIO_SECRET_KEY` | `minioadmin` | MinIO secret key |

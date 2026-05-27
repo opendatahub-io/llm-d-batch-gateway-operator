@@ -3,7 +3,7 @@ kind: RoleBinding
 metadata:
   name: leader-election-rolebinding
   labels:
-    app.kubernetes.io/name: batch-gw-operator
+    app.kubernetes.io/name: batch-gateway-operator
     app.kubernetes.io/managed-by: kustomize
 roleRef:
   apiGroup: rbac.authorization.k8s.io
@@ -11,5 +11,5 @@ roleRef:
   name: leader-election-role
 subjects:
 - kind: ServiceAccount
-  name: batch-gw-operator-controller-manager
+  name: batch-gateway-operator-controller-manager
   namespace: system
