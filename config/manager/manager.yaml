@@ -1,7 +1,7 @@
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: batch-gateway-operator-controller-manager
+  name: batch-gateway-operator
   namespace: system
   labels:
     control-plane: controller-manager
@@ -57,7 +57,7 @@ spec:
             drop:
             - ALL
           readOnlyRootFilesystem: true
-      serviceAccountName: batch-gateway-operator-controller-manager
+      serviceAccountName: batch-gateway-operator
       securityContext:
         runAsNonRoot: true
         seccompProfile:

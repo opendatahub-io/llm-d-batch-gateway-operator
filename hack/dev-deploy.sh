@@ -419,21 +419,26 @@ wait_for_batch_gateway() {
 
 print_status() {
     step "Deployment complete!"
-    echo ""
-    echo "  Operator:"
-    kubectl get pods -n batch-gateway-operator-system
-    echo ""
-    echo "  Batch Gateway:"
-    kubectl get pods -n "${NAMESPACE}" -l "app.kubernetes.io/instance=batch-gateway"
-    echo ""
+
+    echo "----------------------------------------"
+    echo "  Operator (batch-gateway-operator-system):"
+    kubectl get all -n batch-gateway-operator-system
+
+    echo "----------------------------------------"
     echo "  CR Status:"
-    kubectl get llmbatchgateway -n "${NAMESPACE}" 2>/dev/null || true
-    echo ""
+    kubectl get llmbatchgateway -n "${NAMESPACE}"
+
+    echo "----------------------------------------"
+    echo "  Workloads (${NAMESPACE}):"
+    kubectl get all -n "${NAMESPACE}"
+
+    echo "----------------------------------------"
     echo "  Access:"
     echo "    API Server:  http://localhost:${LOCAL_PORT}"
     echo "    Observability: http://localhost:${LOCAL_OBS_PORT}"
     echo "    Processor:   http://localhost:${LOCAL_PROCESSOR_PORT}"
-    echo ""
+
+    echo "----------------------------------------"
     echo "  Cleanup:"
     echo "    make dev-clean        # remove operator + deps"
     echo "    make dev-rm-cluster   # delete Kind cluster"

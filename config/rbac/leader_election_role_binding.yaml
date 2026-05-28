@@ -11,5 +11,5 @@ roleRef:
   name: leader-election-role
 subjects:
 - kind: ServiceAccount
-  name: batch-gateway-operator-controller-manager
+  name: batch-gateway-operator
   namespace: system
