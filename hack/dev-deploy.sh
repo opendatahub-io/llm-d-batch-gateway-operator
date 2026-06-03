@@ -100,103 +100,12 @@ EOF
 
 # ── Dependencies ─────────────────────────────────────────────────────────────
 
-install_postgresql() {
-    step "Installing PostgreSQL..."
-
-    if ! helm repo list 2>/dev/null | grep -q bitnami; then
-        helm repo add bitnami https://charts.bitnami.com/bitnami
-    fi
-    helm repo update bitnami || warn "Helm repo update failed; continuing."
-
-    if helm status postgresql -n "${NAMESPACE}" &>/dev/null; then
-        log "PostgreSQL already installed. Skipping."
-        return
-    fi
-
-    helm install postgresql bitnami/postgresql \
-        --namespace "${NAMESPACE}" \
-        --set auth.postgresPassword="${POSTGRESQL_PASSWORD}" \
-        --set primary.persistence.enabled=false \
-        --wait --timeout 120s
-
-    log "PostgreSQL installed."
-}
-
-install_redis() {
-    step "Installing Redis..."
-
-    if helm status redis -n "${NAMESPACE}" &>/dev/null; then
-        log "Redis already installed. Skipping."
-        return
-    fi
-
-    helm install redis bitnami/redis \
-        --namespace "${NAMESPACE}" \
-        --set auth.enabled=false \
-        --set replica.replicaCount=0 \
-        --set master.persistence.enabled=false \
-        --wait --timeout 120s
-
-    log "Redis installed."
-}
-
-install_minio() {
-    step "Installing MinIO..."
-
-    if kubectl get deployment minio -n "${NAMESPACE}" &>/dev/null; then
-        log "MinIO already exists. Skipping."
-        return
-    fi
-
-    kubectl apply -n "${NAMESPACE}" -f - <<EOF
-apiVersion: apps/v1
-kind: Deployment
-metadata:
-  name: minio
-spec:
-  replicas: 1
-  selector:
-    matchLabels:
-      app: minio
-  template:
-    metadata:
-      labels:
-        app: minio
-    spec:
-      containers:
-      - name: minio
-        image: minio/minio:latest
-        args: ["server", "/data", "--console-address", ":9001"]
-        env:
-        - name: MINIO_ROOT_USER
-          value: "${MINIO_ACCESS_KEY}"
-        - name: MINIO_ROOT_PASSWORD
-          value: "${MINIO_SECRET_KEY}"
-        ports:
-        - containerPort: 9000
-          name: api
-        readinessProbe:
-          httpGet:
-            path: /minio/health/ready
-            port: 9000
-          initialDelaySeconds: 5
-          periodSeconds: 5
----
-apiVersion: v1
-kind: Service
-metadata:
-  name: minio
-spec:
-  selector:
-    app: minio
-  ports:
-  - name: api
-    port: 9000
-    targetPort: 9000
-EOF
-
-    kubectl rollout status deployment minio -n "${NAMESPACE}" --timeout=120s
-    log "MinIO installed."
+install_prereqs() {
+    NAMESPACE="${NAMESPACE}" \
+    POSTGRESQL_PASSWORD="${POSTGRESQL_PASSWORD}" \
+    MINIO_ROOT_USER="${MINIO_ACCESS_KEY}" \
+    MINIO_ROOT_PASSWORD="${MINIO_SECRET_KEY}" \
+        bash "${SCRIPT_DIR}/setup-prereqs.sh"
 }
 
 install_gateway_api_crds() {
@@ -303,23 +212,6 @@ EOF
 
     kubectl rollout status deployment vllm-sim -n "${NAMESPACE}" --timeout=120s
     log "vLLM simulator installed."
-}
-
-create_secret() {
-    step "Creating batch-gateway-secrets..."
-
-    local redis_url="redis://redis-master.${NAMESPACE}.svc.cluster.local:6379/0"
-    local postgresql_url="postgresql://postgres:${POSTGRESQL_PASSWORD}@postgresql.${NAMESPACE}.svc.cluster.local:5432/postgres"
-
-    kubectl create secret generic batch-gateway-secrets \
-        --namespace "${NAMESPACE}" \
-        --from-literal=redis-url="${redis_url}" \
-        --from-literal=postgresql-url="${postgresql_url}" \
-        --from-literal=inference-api-key="dummy-api-key" \
-        --from-literal=s3-secret-access-key="${MINIO_SECRET_KEY}" \
-        --dry-run=client -o yaml | kubectl apply -f -
-
-    log "Secret created."
 }
 
 # ── Operator ─────────────────────────────────────────────────────────────────
@@ -485,11 +377,8 @@ main() {
     ensure_cluster
     install_gateway_api_crds
     install_prometheus_operator_crds
-    install_postgresql
-    install_redis
-    install_minio
+    install_prereqs
     install_vllm_sim
-    create_secret
     load_operator
     deploy_operator
     apply_cr
