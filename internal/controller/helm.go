@@ -19,6 +19,11 @@ import (
 	batchv1alpha1 "github.com/opendatahub-io/llm-d-batch-gateway-operator/api/v1alpha1"
 )
 
+const (
+	odhMonitoringScrapeLabel = "monitoring.opendatahub.io/scrape"
+	odhMonitoringScrapeValue = "true"
+)
+
 type HelmRenderer struct {
 	chart *chart.Chart
 }
@@ -210,6 +215,9 @@ func specToHelmValues(gw *batchv1alpha1.LLMBatchGateway, secretName string) map[
 	if gw.Spec.Monitoring != nil && gw.Spec.Monitoring.Enabled {
 		apiserver["serviceMonitor"] = map[string]interface{}{
 			"enabled": true,
+			"labels": map[string]interface{}{
+				odhMonitoringScrapeLabel: odhMonitoringScrapeValue,
+			},
 		}
 	}
 
@@ -256,6 +264,9 @@ func specToHelmValues(gw *batchv1alpha1.LLMBatchGateway, secretName string) map[
 	if gw.Spec.Monitoring != nil && gw.Spec.Monitoring.Enabled {
 		processor["podMonitor"] = map[string]interface{}{
 			"enabled": true,
+			"labels": map[string]interface{}{
+				odhMonitoringScrapeLabel: odhMonitoringScrapeValue,
+			},
 		}
 	}
 
@@ -290,6 +301,16 @@ func specToHelmValues(gw *batchv1alpha1.LLMBatchGateway, secretName string) map[
 	}
 	if len(gcConfig) > 0 {
 		gc["config"] = gcConfig
+	}
+
+	// PodMonitor
+	if gw.Spec.Monitoring != nil && gw.Spec.Monitoring.Enabled {
+		gc["podMonitor"] = map[string]interface{}{
+			"enabled": true,
+			"labels": map[string]interface{}{
+				odhMonitoringScrapeLabel: odhMonitoringScrapeValue,
+			},
+		}
 	}
 
 	vals["gc"] = gc

@@ -219,13 +219,33 @@ func TestSpecToHelmValues_Monitoring(t *testing.T) {
 		if got := sm["enabled"]; got != true {
 			t.Errorf("serviceMonitor.enabled = %v, want true", got)
 		}
+		labels := sm["labels"].(map[string]interface{})
+		if got := labels[odhMonitoringScrapeLabel]; got != odhMonitoringScrapeValue {
+			t.Errorf("serviceMonitor scrape label = %v, want \"true\"", got)
+		}
 	})
 
-	t.Run("pod monitor enabled", func(t *testing.T) {
+	t.Run("processor pod monitor enabled with scrape label", func(t *testing.T) {
 		processor := vals["processor"].(map[string]interface{})
 		pm := processor["podMonitor"].(map[string]interface{})
 		if got := pm["enabled"]; got != true {
 			t.Errorf("podMonitor.enabled = %v, want true", got)
+		}
+		labels := pm["labels"].(map[string]interface{})
+		if got := labels[odhMonitoringScrapeLabel]; got != odhMonitoringScrapeValue {
+			t.Errorf("podMonitor scrape label = %v, want \"true\"", got)
+		}
+	})
+
+	t.Run("gc pod monitor enabled with scrape label", func(t *testing.T) {
+		gc := vals["gc"].(map[string]interface{})
+		pm := gc["podMonitor"].(map[string]interface{})
+		if got := pm["enabled"]; got != true {
+			t.Errorf("podMonitor.enabled = %v, want true", got)
+		}
+		labels := pm["labels"].(map[string]interface{})
+		if got := labels[odhMonitoringScrapeLabel]; got != odhMonitoringScrapeValue {
+			t.Errorf("podMonitor scrape label = %v, want \"true\"", got)
 		}
 	})
 }
@@ -391,9 +411,9 @@ func TestRenderChart_WithMonitoring(t *testing.T) {
 		}
 	})
 
-	t.Run("renders pod monitor", func(t *testing.T) {
-		if got := kinds["PodMonitor"]; got != 1 {
-			t.Errorf("PodMonitor count = %d, want 1", got)
+	t.Run("renders pod monitors", func(t *testing.T) {
+		if got := kinds["PodMonitor"]; got != 2 {
+			t.Errorf("PodMonitor count = %d, want 2 (processor + gc)", got)
 		}
 	})
 }
