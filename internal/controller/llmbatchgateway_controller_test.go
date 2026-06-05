@@ -40,18 +40,15 @@ func newTestGateway(name string) *batchv1alpha1.LLMBatchGateway {
 			},
 			APIServer: batchv1alpha1.APIServerSpec{
 				Replicas: ptr.To(int32(1)),
-				Image:    "test-apiserver:latest",
 			},
 			Processor: batchv1alpha1.ProcessorSpec{
 				Replicas: ptr.To(int32(1)),
-				Image:    "test-processor:latest",
 				GlobalInferenceGateway: &batchv1alpha1.InferenceGatewaySpec{
 					URL:            "http://inference-gw:8000",
 					RequestTimeout: "5m",
 				},
 			},
 			GC: batchv1alpha1.GCSpec{
-				Image:    "test-gc:latest",
 				Interval: "30m",
 			},
 		},
@@ -61,7 +58,7 @@ func newTestGateway(name string) *batchv1alpha1.LLMBatchGateway {
 func TestReconcile(t *testing.T) {
 	ctx := context.Background()
 
-	helmRenderer, err := NewHelmRenderer("../../batch-gateway/charts/batch-gateway")
+	helmRenderer, err := NewHelmRenderer("../../batch-gateway/charts/batch-gateway", testImages())
 	if err != nil {
 		t.Fatalf("NewHelmRenderer() error: %v", err)
 	}
@@ -649,7 +646,7 @@ func isOwnedByUID(refs []metav1.OwnerReference, uid types.UID) bool {
 func TestReconcileTimeout(t *testing.T) {
 	ctx := context.Background()
 
-	helmRenderer, err := NewHelmRenderer("../../batch-gateway/charts/batch-gateway")
+	helmRenderer, err := NewHelmRenderer("../../batch-gateway/charts/batch-gateway", testImages())
 	if err != nil {
 		t.Fatalf("NewHelmRenderer() error: %v", err)
 	}

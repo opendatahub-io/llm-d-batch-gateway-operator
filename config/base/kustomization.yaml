@@ -21,10 +21,40 @@ replacements:
   - source:
       kind: ConfigMap
       name: operator-params
-      fieldPath: data.BATCH_GATEWAY_OPERATOR_IMAGE
+      fieldPath: data.LLM_D_BATCH_GATEWAY_OPERATOR_IMAGE
     targets:
       - select:
           kind: Deployment
           name: batch-gateway-operator
         fieldPaths:
           - spec.template.spec.containers.[name=manager].image
+  - source:
+      kind: ConfigMap
+      name: operator-params
+      fieldPath: data.LLM_D_BATCH_GATEWAY_APISERVER_IMAGE
+    targets:
+      - select:
+          kind: Deployment
+          name: batch-gateway-operator
+        fieldPaths:
+          - spec.template.spec.containers.[name=manager].env.[name=LLM_D_BATCH_GATEWAY_APISERVER_IMAGE].value
+  - source:
+      kind: ConfigMap
+      name: operator-params
+      fieldPath: data.LLM_D_BATCH_GATEWAY_PROCESSOR_IMAGE
+    targets:
+      - select:
+          kind: Deployment
+          name: batch-gateway-operator
+        fieldPaths:
+          - spec.template.spec.containers.[name=manager].env.[name=LLM_D_BATCH_GATEWAY_PROCESSOR_IMAGE].value
+  - source:
+      kind: ConfigMap
+      name: operator-params
+      fieldPath: data.LLM_D_BATCH_GATEWAY_GC_IMAGE
+    targets:
+      - select:
+          kind: Deployment
+          name: batch-gateway-operator
+        fieldPaths:
+          - spec.template.spec.containers.[name=manager].env.[name=LLM_D_BATCH_GATEWAY_GC_IMAGE].value

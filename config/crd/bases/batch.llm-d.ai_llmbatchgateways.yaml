@@ -146,11 +146,6 @@ spec:
                         format: int32
                         type: integer
                     type: object
-                  image:
-                    description: Image is the container image for the API server (e.g.
-                      "ghcr.io/org/apiserver:v1.2.3").
-                    maxLength: 1024
-                    type: string
                   replicas:
                     default: 1
                     description: |-
@@ -219,8 +214,6 @@ spec:
                           More info: https://kubernetes.io/docs/concepts/configuration/manage-resources-containers/
                         type: object
                     type: object
-                required:
-                - image
                 type: object
               dbBackend:
                 default: postgresql
@@ -337,17 +330,11 @@ spec:
                         format: int32
                         type: integer
                     type: object
-                  image:
-                    description: Image is the container image for the GC (e.g. "ghcr.io/org/batch-gc:v1.2.3").
-                    maxLength: 1024
-                    type: string
                   interval:
                     default: 30m
                     description: Interval is how often the GC runs (e.g. "30m").
                     pattern: ^([0-9]+(\.[0-9]+)?(ms|s|m|h))+$
                     type: string
-                required:
-                - image
                 type: object
               grafana:
                 description: Grafana enables the bundled Grafana dashboard ConfigMap.
@@ -544,11 +531,6 @@ spec:
                     required:
                     - url
                     type: object
-                  image:
-                    description: Image is the container image for the processor (e.g.
-                      "ghcr.io/org/processor:v1.2.3").
-                    maxLength: 1024
-                    type: string
                   modelGateways:
                     additionalProperties:
                       description: InferenceGatewaySpec configures a connection to
@@ -676,8 +658,6 @@ spec:
                           More info: https://kubernetes.io/docs/concepts/configuration/manage-resources-containers/
                         type: object
                     type: object
-                required:
-                - image
                 type: object
               prometheusRule:
                 description: PrometheusRule configures a PrometheusRule resource with

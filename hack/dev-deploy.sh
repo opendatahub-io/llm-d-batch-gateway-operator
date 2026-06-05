@@ -18,9 +18,12 @@ MINIO_REGION="${MINIO_REGION:-us-east-1}"
 GATEWAY_API_VERSION="${GATEWAY_API_VERSION:-}"
 PROMETHEUS_OPERATOR_VERSION="${PROMETHEUS_OPERATOR_VERSION:-}"
 
-APISERVER_IMG="${APISERVER_IMG:-ghcr.io/llm-d-incubation/batch-gateway-apiserver:latest}"
-PROCESSOR_IMG="${PROCESSOR_IMG:-ghcr.io/llm-d-incubation/batch-gateway-processor:latest}"
-GC_IMG="${GC_IMG:-ghcr.io/llm-d-incubation/batch-gateway-gc:latest}"
+# read from params.env if you wanna test a different image, go update params.env
+PARAMS_ENV="${OPERATOR_DIR}/config/base/params.env"
+param_image() { grep -E "^$1=" "${PARAMS_ENV}" 2>/dev/null | head -n1 | cut -d= -f2- || true; }
+APISERVER_IMG="${APISERVER_IMG:-$(param_image LLM_D_BATCH_GATEWAY_APISERVER_IMAGE)}"
+PROCESSOR_IMG="${PROCESSOR_IMG:-$(param_image LLM_D_BATCH_GATEWAY_PROCESSOR_IMAGE)}"
+GC_IMG="${GC_IMG:-$(param_image LLM_D_BATCH_GATEWAY_GC_IMAGE)}"
 VLLM_SIM_IMG="${VLLM_SIM_IMG:-ghcr.io/llm-d/llm-d-inference-sim:latest}"
 
 # Port configuration (matches batch-gateway defaults)
@@ -245,7 +248,13 @@ deploy_operator() {
     make install
     IMG="${OPERATOR_IMG}" make deploy
 
-    kubectl rollout status deployment -l control-plane=controller-manager \
+    step "Setting component images on the operator..."
+    kubectl set env deployment/batch-gateway-operator -n batch-gateway-operator-system \
+        LLM_D_BATCH_GATEWAY_APISERVER_IMAGE="${APISERVER_IMG}" \
+        LLM_D_BATCH_GATEWAY_PROCESSOR_IMAGE="${PROCESSOR_IMG}" \
+        LLM_D_BATCH_GATEWAY_GC_IMAGE="${GC_IMG}"
+
+    kubectl rollout status deployment/batch-gateway-operator \
         -n batch-gateway-operator-system --timeout=120s
 
     log "Operator deployed."

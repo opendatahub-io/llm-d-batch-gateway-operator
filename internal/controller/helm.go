@@ -24,20 +24,31 @@ const (
 	odhMonitoringScrapeValue = "true"
 )
 
-type HelmRenderer struct {
-	chart *chart.Chart
+// ComponentImages holds the container images for the batch-gateway components.
+// These are supplied to the operator via environment variables (sourced from
+// params.env) rather than the LLMBatchGateway CR, so that the platform — not
+// the user creating the CR — controls which images are deployed.
+type ComponentImages struct {
+	APIServer string
+	Processor string
+	GC        string
 }
 
-func NewHelmRenderer(chartPath string) (*HelmRenderer, error) {
+type HelmRenderer struct {
+	chart  *chart.Chart
+	images ComponentImages
+}
+
+func NewHelmRenderer(chartPath string, images ComponentImages) (*HelmRenderer, error) {
 	c, err := loader.Load(chartPath)
 	if err != nil {
 		return nil, fmt.Errorf("loading chart from %s: %w", chartPath, err)
 	}
-	return &HelmRenderer{chart: c}, nil
+	return &HelmRenderer{chart: c, images: images}, nil
 }
 
 func (h *HelmRenderer) RenderChart(gw *batchv1alpha1.LLMBatchGateway, secretName string) ([]*unstructured.Unstructured, error) {
-	vals := specToHelmValues(gw, secretName)
+	vals := specToHelmValues(gw, secretName, h.images)
 
 	releaseOpts := chartutil.ReleaseOptions{
 		Name:      gw.Name,
@@ -80,7 +91,7 @@ func (h *HelmRenderer) RenderChart(gw *batchv1alpha1.LLMBatchGateway, secretName
 	return objects, nil
 }
 
-func specToHelmValues(gw *batchv1alpha1.LLMBatchGateway, secretName string) map[string]interface{} {
+func specToHelmValues(gw *batchv1alpha1.LLMBatchGateway, secretName string, images ComponentImages) map[string]interface{} {
 	vals := map[string]interface{}{}
 
 	// --- Global ---
@@ -145,7 +156,7 @@ func specToHelmValues(gw *batchv1alpha1.LLMBatchGateway, secretName string) map[
 	vals["global"] = global
 
 	// --- API Server ---
-	apiRepo, apiTag := splitImage(gw.Spec.APIServer.Image)
+	apiRepo, apiTag := splitImage(images.APIServer)
 	apiserver := map[string]interface{}{
 		"enabled": true,
 		"image": map[string]interface{}{
@@ -224,7 +235,7 @@ func specToHelmValues(gw *batchv1alpha1.LLMBatchGateway, secretName string) map[
 	vals["apiserver"] = apiserver
 
 	// --- Processor ---
-	procRepo, procTag := splitImage(gw.Spec.Processor.Image)
+	procRepo, procTag := splitImage(images.Processor)
 	processor := map[string]interface{}{
 		"enabled": true,
 		"image": map[string]interface{}{
@@ -273,7 +284,7 @@ func specToHelmValues(gw *batchv1alpha1.LLMBatchGateway, secretName string) map[
 	vals["processor"] = processor
 
 	// --- GC ---
-	gcRepo, gcTag := splitImage(gw.Spec.GC.Image)
+	gcRepo, gcTag := splitImage(images.GC)
 	gc := map[string]interface{}{
 		"enabled": true,
 		"image": map[string]interface{}{

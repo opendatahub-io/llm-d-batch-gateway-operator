@@ -179,11 +179,6 @@ type APIServerSpec struct {
 	// +kubebuilder:validation:Minimum=0
 	Replicas *int32 `json:"replicas,omitempty"`
 
-	// Image is the container image for the API server (e.g. "ghcr.io/org/apiserver:v1.2.3").
-	// +kubebuilder:validation:Required
-	// +kubebuilder:validation:MaxLength=1024
-	Image string `json:"image"`
-
 	// Resources defines CPU and memory requests/limits for the API server container.
 	Resources *corev1.ResourceRequirements `json:"resources,omitempty"`
 
@@ -262,11 +257,6 @@ type ProcessorSpec struct {
 	// +kubebuilder:default=1
 	// +kubebuilder:validation:Minimum=0
 	Replicas *int32 `json:"replicas,omitempty"`
-
-	// Image is the container image for the processor (e.g. "ghcr.io/org/processor:v1.2.3").
-	// +kubebuilder:validation:Required
-	// +kubebuilder:validation:MaxLength=1024
-	Image string `json:"image"`
 
 	// Resources defines CPU and memory requests/limits for the processor container.
 	Resources *corev1.ResourceRequirements `json:"resources,omitempty"`
@@ -359,11 +349,6 @@ type ProcessorConfigSpec struct {
 
 // GCSpec configures the garbage-collector component.
 type GCSpec struct {
-	// Image is the container image for the GC (e.g. "ghcr.io/org/batch-gc:v1.2.3").
-	// +kubebuilder:validation:Required
-	// +kubebuilder:validation:MaxLength=1024
-	Image string `json:"image"`
-
 	// Interval is how often the GC runs (e.g. "30m").
 	// +kubebuilder:default="30m"
 	// +kubebuilder:validation:Pattern=`^([0-9]+(\.[0-9]+)?(ms|s|m|h))+$`
