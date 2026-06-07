@@ -1,2 +1,5 @@
 bin/
 .vscode
+
+# Fetched on demand via `make fetch-batch-gateway` (pinned to BATCH_GATEWAY_REF), not tracked in git.
+/batch-gateway/

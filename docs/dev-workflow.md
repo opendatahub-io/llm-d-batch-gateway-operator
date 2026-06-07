@@ -17,20 +17,18 @@ When upstream code changes, updates flow bottom-up: batch-gateway-operator → a
 
 ## 1. Update batch-gateway-operator
 
-The upstream [batch-gateway](https://github.com/opendatahub-io/batch-gateway) repo is a git submodule. When it has new changes:
+The entire upstream [batch-gateway](https://github.com/opendatahub-io/batch-gateway) repo is fetched on demand at a commit pinned by `BATCH_GATEWAY_REF` in the `Makefile` (the operator uses its Helm chart + e2e tests); it is not a git submodule. When it has new changes:
 
 ```bash
 cd llm-d-batch-gateway-operator
 
-# Update submodule to latest main
-git submodule update --remote batch-gateway
+# Show the latest upstream main commit
+git ls-remote https://github.com/opendatahub-io/batch-gateway.git refs/heads/main
 
-# Check what changed
-git -C batch-gateway log --oneline <old-sha>..HEAD
-
-# Commit
-git add batch-gateway
-git commit -m "chore: update batch-gateway submodule to <short-sha>"
+# Set BATCH_GATEWAY_REF in the Makefile to the new SHA, then commit the pin bump
+# (the batch-gateway/ dir itself is gitignored; the next build/test re-fetches automatically)
+git add Makefile
+git commit -m "chore: bump batch-gateway to <short-sha>"
 ```
 
 After merging to midstream [opendatahub-io/llm-d-batch-gateway-operator](https://github.com/opendatahub-io/llm-d-batch-gateway-operator), the change will be automatically synced to downstream [red-hat-data-services/llm-d-batch-gateway-operator](https://github.com/red-hat-data-services/llm-d-batch-gateway-operator). Wait for the sync to complete before proceeding. Check status via [upstream-auto-merge](https://github.com/red-hat-data-services/rhods-devops-infra/actions/workflows/upstream-auto-merge.yaml).

@@ -35,7 +35,7 @@ For local end-to-end testing:
 ## 2. Quick Start
 
 ```bash
-git clone --recurse-submodules https://github.com/opendatahub-io/llm-d-batch-gateway-operator.git
+git clone https://github.com/opendatahub-io/llm-d-batch-gateway-operator.git
 cd llm-d-batch-gateway-operator
 
 # Build
@@ -45,10 +45,12 @@ make build
 make test
 ```
 
-If you already cloned without `--recurse-submodules`:
+The entire upstream batch-gateway repo is fetched on demand into `batch-gateway/` at a pinned commit by
+`make fetch-batch-gateway`, which the relevant targets (`test`, `docker-build`, `dev-deploy`, `test-e2e-batch-gateway`) depend on; the operator uses its Helm chart
+and e2e tests. To fetch it explicitly:
 
 ```bash
-git submodule update --init
+make fetch-batch-gateway
 ```
 
 ## 3. Project Structure
@@ -69,7 +71,7 @@ git submodule update --init
 │   ├── rbac/                    # RBAC roles and bindings
 │   └── samples/                 # Example LLMBatchGateway CRs
 ├── hack/                        # Dev scripts (Kind cluster setup)
-├── batch-gateway/               # Git submodule (upstream Helm chart)
+├── batch-gateway/
 ├── Makefile
 └── Dockerfile
 ```
@@ -104,35 +106,44 @@ The reconcile loop lives in `internal/controller/llmbatchgateway_controller.go`.
 
 The mapping from CRD spec to Helm values is in `internal/controller/helm.go`, function `specToHelmValues()`. When the upstream chart adds new values or the CRD adds new fields, update this function accordingly.
 
-### 4.4 Updating the Helm Chart Submodule
+### 4.4 Updating the Helm Chart
 
-The upstream batch-gateway Helm chart is pulled in as a git submodule at `batch-gateway/`.
+The entire batch-gateway git repo is fetched on demand into `batch-gateway/` folder
+at a pinned commit (the operator uses its Helm chart and e2e tests). The pin lives in the `Makefile` as
+`BATCH_GATEWAY_REF` — it is the single source of truth. The `batch-gateway/` directory itself is gitignored and never committed.
 
-Update to the latest upstream commit:
-
-```bash
-make update-submodule
-git add batch-gateway
-git commit -m "chore: update batch-gateway submodule"
-```
-
-Switch to a different branch:
+Bump the pin to the current tip of upstream `main`. Resolve it to a SHA and pin
+that — don't set `BATCH_GATEWAY_REF` to the branch name `main`, or builds would
+fetch a moving target and stop being reproducible:
 
 ```bash
-git submodule set-branch -b <branch> batch-gateway
-git submodule update --remote
-git add batch-gateway .gitmodules
+# resolve the current main tip to an immutable commit SHA
+git ls-remote https://github.com/opendatahub-io/batch-gateway.git refs/heads/main
+# set BATCH_GATEWAY_REF in the Makefile to that SHA (or a release tag)
+git add Makefile
+git commit -m "chore: bump opendatahub-io/batch-gateway to <sha>"
 ```
 
-Switch to a specific commit or tag:
+To try a specific commit, tag, or branch for local test, override `BATCH_GATEWAY_REF`
+on the command line — the committed pin in the `Makefile` is left unchanged:
 
 ```bash
-cd batch-gateway
-git fetch
-git checkout <commit-or-tag>
-cd ..
-git add batch-gateway
+make fetch-batch-gateway BATCH_GATEWAY_REF=<commit-tag-or-branch>
 ```
+
+To build or test against it, pass the same override to the target doing the work
+(or `export BATCH_GATEWAY_REF=<ref>` for a whole session) so the fetch and the
+build agree on the ref:
+
+```bash
+make test         BATCH_GATEWAY_REF=my-branch
+make docker-build BATCH_GATEWAY_REF=my-branch
+```
+
+A bare `make test` afterwards would re-fetch the pinned ref and reset
+`batch-gateway/`, so always pass the override on the command that does the work.
+(A branch re-fetches its latest tip each run; an uncommitted local checkout is
+left untouched.)
 
 ## 5. Testing
 
@@ -145,7 +156,7 @@ make test
 This runs all tests using [envtest](https://book.kubebuilder.io/reference/envtest) (a local control plane without a real cluster). Tests cover:
 
 - `specToHelmValues()` mapping correctness
-- Helm chart rendering (requires the submodule to be initialized)
+- Helm chart rendering (requires the batch-gateway chart; `make test` fetches it automatically)
 - Controller reconciliation: resource creation, owner references, status conditions, spec updates
 
 ### 5.2 E2E Tests with Kind
