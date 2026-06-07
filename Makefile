@@ -5,6 +5,15 @@ ENVTEST ?= go run sigs.k8s.io/controller-runtime/tools/setup-envtest@release-0.2
 ENVTEST_K8S_VERSION ?= 1.33.0
 LOCALBIN ?= $(shell pwd)/bin/k8s
 
+
+
+## The full batch-gateway repo is checked out in $(BATCH_GATEWAY_DIR); the operator uses its chart + e2e tests.
+## This replaces the old git submodule solution.
+BATCH_GATEWAY_REPO ?= https://github.com/opendatahub-io/batch-gateway.git
+BATCH_GATEWAY_REF  ?= a672735cf19325d646a6ef33270df903cfdcd7cb
+BATCH_GATEWAY_DIR  ?= batch-gateway
+
+
 ## Deps
 
 .PHONY: deps
@@ -46,7 +55,7 @@ generate:
 ## Test
 
 .PHONY: test
-test: generate manifests setup-envtest
+test: generate manifests setup-envtest fetch-batch-gateway
 	KUBEBUILDER_ASSETS="$$($(ENVTEST) use $(ENVTEST_K8S_VERSION) --bin-dir $(LOCALBIN) -p path)" \
 	CGO_ENABLED=1 \
 	go test -v ./... -race -count=1
@@ -60,8 +69,12 @@ setup-envtest:
 CONTAINER_TOOL ?= $(shell command -v docker 2>/dev/null || command -v podman 2>/dev/null)
 
 .PHONY: docker-build
-docker-build:
+docker-build: fetch-batch-gateway
 	$(CONTAINER_TOOL) build -t $(IMG) -f Dockerfile .
+
+.PHONY: docker-build-konflux
+docker-build-konflux: ## Build with Dockerfile.konflux
+	$(CONTAINER_TOOL) build -t $(IMG) -f Dockerfile.konflux .
 
 .PHONY: docker-push
 docker-push:
@@ -108,7 +121,7 @@ undeploy:
 KIND_CLUSTER_NAME ?= batch-gateway-dev
 
 .PHONY: dev-deploy
-dev-deploy:
+dev-deploy: fetch-batch-gateway
 	hack/dev-deploy.sh
 
 .PHONY: dev-clean
@@ -123,16 +136,34 @@ dev-rm-cluster:
 TEST_RUN ?= TestE2E/Batches/Lifecycle
 
 .PHONY: test-e2e-batch-gateway
-test-e2e-batch-gateway:
-	cd batch-gateway/test/e2e && go test -v -count=1 -run "$(TEST_RUN)" ./...
+test-e2e-batch-gateway: fetch-batch-gateway
+	cd $(BATCH_GATEWAY_DIR)/test/e2e && go test -v -count=1 -run "$(TEST_RUN)" ./...
 
 .PHONY: test-e2e-operator
 test-e2e-operator:
 	cd test/e2e && go test -v -count=1 -timeout 5m ./...
 
-## Submodule
+.PHONY: fetch-batch-gateway
+fetch-batch-gateway: ## Fetch the full batch-gateway repo at BATCH_GATEWAY_REF (the operator uses its chart + e2e tests).
+	@if ! git -C $(BATCH_GATEWAY_DIR) rev-parse --git-dir >/dev/null 2>&1; then \
+		echo "Cloning batch-gateway $(BATCH_GATEWAY_REF) from $(BATCH_GATEWAY_REPO)"; \
+		git init -q $(BATCH_GATEWAY_DIR) && \
+		git -C $(BATCH_GATEWAY_DIR) fetch -q --depth 1 $(BATCH_GATEWAY_REPO) $(BATCH_GATEWAY_REF) && \
+		git -C $(BATCH_GATEWAY_DIR) checkout -q FETCH_HEAD; \
+	elif [ "$$(git -C $(BATCH_GATEWAY_DIR) rev-parse HEAD)" = "$(BATCH_GATEWAY_REF)" ]; then \
+		echo "batch-gateway already at $(BATCH_GATEWAY_REF)"; \
+	elif [ -n "$$(git -C $(BATCH_GATEWAY_DIR) status --porcelain -uno)" ]; then \
+		echo "WARNING: $(BATCH_GATEWAY_DIR) has uncommitted changes and is not at $(BATCH_GATEWAY_REF); using it as-is."; \
+		echo "Commit/stash them (or 'rm -rf $(BATCH_GATEWAY_DIR)') and re-run to use the pinned ref."; \
+	else \
+		echo "Updating batch-gateway to $(BATCH_GATEWAY_REF) from $(BATCH_GATEWAY_REPO)"; \
+		git -C $(BATCH_GATEWAY_DIR) fetch -q --depth 1 $(BATCH_GATEWAY_REPO) $(BATCH_GATEWAY_REF) && \
+		git -C $(BATCH_GATEWAY_DIR) checkout -q FETCH_HEAD; \
+	fi
 
-.PHONY: update-submodule
-update-submodule:
-	git submodule update --remote batch-gateway
+.PHONY: sync-prefetched-charts
+sync-prefetched-charts: fetch-batch-gateway ## For downstream with konflux only
+	@rm -rf prefetched-charts/batch-gateway && mkdir -p prefetched-charts
+	@cp -r $(BATCH_GATEWAY_DIR)/charts/batch-gateway prefetched-charts/batch-gateway
+	@echo "synced prefetched-charts/batch-gateway at $(BATCH_GATEWAY_REF)"
 

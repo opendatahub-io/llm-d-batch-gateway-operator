@@ -22,8 +22,9 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-        with:
-          submodules: true
+
+      - name: Fetch batch-gateway chart
+        run: make fetch-batch-gateway
 
       - name: Set up QEMU
         uses: docker/setup-qemu-action@v3
