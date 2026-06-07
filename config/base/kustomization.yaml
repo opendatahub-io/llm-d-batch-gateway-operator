@@ -13,14 +13,14 @@ patches:
       kind: Deployment
 
 configMapGenerator:
-  - name: operator-params
+  - name: batch-gateway-operator-params
     envs:
       - params.env
 
 replacements:
   - source:
       kind: ConfigMap
-      name: operator-params
+      name: batch-gateway-operator-params
       fieldPath: data.LLM_D_BATCH_GATEWAY_OPERATOR_IMAGE
     targets:
       - select:
@@ -30,7 +30,7 @@ replacements:
           - spec.template.spec.containers.[name=manager].image
   - source:
       kind: ConfigMap
-      name: operator-params
+      name: batch-gateway-operator-params
       fieldPath: data.LLM_D_BATCH_GATEWAY_APISERVER_IMAGE
     targets:
       - select:
@@ -40,7 +40,7 @@ replacements:
           - spec.template.spec.containers.[name=manager].env.[name=LLM_D_BATCH_GATEWAY_APISERVER_IMAGE].value
   - source:
       kind: ConfigMap
-      name: operator-params
+      name: batch-gateway-operator-params
       fieldPath: data.LLM_D_BATCH_GATEWAY_PROCESSOR_IMAGE
     targets:
       - select:
@@ -50,7 +50,7 @@ replacements:
           - spec.template.spec.containers.[name=manager].env.[name=LLM_D_BATCH_GATEWAY_PROCESSOR_IMAGE].value
   - source:
       kind: ConfigMap
-      name: operator-params
+      name: batch-gateway-operator-params
       fieldPath: data.LLM_D_BATCH_GATEWAY_GC_IMAGE
     targets:
       - select:

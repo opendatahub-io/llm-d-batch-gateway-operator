@@ -8,6 +8,8 @@ OPERATOR_DIR="$(cd "${SCRIPT_DIR}/.." && pwd)"
 
 KIND_CLUSTER_NAME="${KIND_CLUSTER_NAME:-batch-gateway-dev}"
 NAMESPACE="${NAMESPACE:-default}"
+# Operator namespace, must match config/default/kustomization.yaml's `namespace:` field.
+OPERATOR_NAMESPACE="${OPERATOR_NAMESPACE:-batch-gateway-operator-system}"
 OPERATOR_IMG="${OPERATOR_IMG:-localhost/batch-gateway-operator:dev}"
 
 POSTGRESQL_PASSWORD="${POSTGRESQL_PASSWORD:-postgres}"
@@ -244,18 +246,19 @@ deploy_operator() {
     step "Installing CRD and deploying operator..."
     cd "${OPERATOR_DIR}"
 
-    kubectl create namespace batch-gateway-operator-system 2>/dev/null || true
+    kubectl create namespace "${OPERATOR_NAMESPACE}" 2>/dev/null || true
     make install
     IMG="${OPERATOR_IMG}" make deploy
 
-    step "Setting component images on the operator..."
-    kubectl set env deployment/batch-gateway-operator -n batch-gateway-operator-system \
+    # override the env vars on the deployment to pin the images dev wants (defaults read from params.env.
+    step "Setting 3 component images on the operator deployment as env variable..."
+    kubectl set env deployment/batch-gateway-operator -n "${OPERATOR_NAMESPACE}" \
         LLM_D_BATCH_GATEWAY_APISERVER_IMAGE="${APISERVER_IMG}" \
         LLM_D_BATCH_GATEWAY_PROCESSOR_IMAGE="${PROCESSOR_IMG}" \
         LLM_D_BATCH_GATEWAY_GC_IMAGE="${GC_IMG}"
 
     kubectl rollout status deployment/batch-gateway-operator \
-        -n batch-gateway-operator-system --timeout=120s
+        -n "${OPERATOR_NAMESPACE}" --timeout=120s
 
     log "Operator deployed."
 }
@@ -349,8 +352,8 @@ print_status() {
     step "Deployment complete!"
 
     echo "----------------------------------------"
-    echo "  Operator (batch-gateway-operator-system):"
-    kubectl get all -n batch-gateway-operator-system
+    echo "  Operator (${OPERATOR_NAMESPACE}):"
+    kubectl get all -n "${OPERATOR_NAMESPACE}"
 
     echo "----------------------------------------"
     echo "  CR Status:"

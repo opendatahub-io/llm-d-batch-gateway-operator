@@ -29,7 +29,7 @@ import (
 // It defaults to "dev" when built without the flag (e.g. go run).
 var version = "dev"
 
-// the way for batch-gateway-operator to know which exactly are the 3 images are via env variable set in the deployment
+// the way for batch-gateway-operator to know which exactly are the 3 component images(disgest) are via env variable set in the deployment
 // since it cannot read params.env which is updated by opendatahub-operator
 const (
 	envImageAPIServer = "LLM_D_BATCH_GATEWAY_APISERVER_IMAGE"
