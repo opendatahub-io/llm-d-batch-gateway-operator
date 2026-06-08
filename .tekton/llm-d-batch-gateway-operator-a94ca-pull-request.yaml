@@ -29,7 +29,7 @@ spec:
   - name: dockerfile
     value: Dockerfile.konflux
   - name: prefetch-input
-    value: '[{"type": "npm", "path": "."}]'
+    value: '[{"type": "gomod", "path": "."}]'
   - name: build-source-image
     value: "true"
   - name: build-image-index
