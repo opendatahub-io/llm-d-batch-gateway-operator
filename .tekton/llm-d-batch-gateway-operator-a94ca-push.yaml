@@ -25,6 +25,18 @@ spec:
     value: quay.io/redhat-user-workloads/rhoai-tenant/llm-d-batch-gateway-operator-a94ca:{{revision}}
   - name: dockerfile
     value: Dockerfile.konflux
+  - name: prefetch-input
+    value: '[{"type": "npm", "path": "."}]'
+  - name: build-source-image
+    value: "true"
+  - name: build-image-index
+    value: "true"
+  - name: build-platforms
+    value:
+    - linux/x86_64
+    - linux-m2xlarge/arm64
+    - linux/ppc64le
+    - linux/s390x
   pipelineSpec:
     description: |
       This pipeline is ideal for building container images from a Containerfile while maintaining trust after pipeline customization.
@@ -106,6 +118,10 @@ spec:
         VMs
       name: privileged-nested
       type: string
+    - default: []
+      description: List of platforms to build on
+      name: build-platforms
+      type: array
     results:
     - description: ""
       name: IMAGE_URL
