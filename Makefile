@@ -67,19 +67,19 @@ setup-envtest:
 
 ## Container
 
-IMAGE_BUILDER ?= $(shell command -v docker 2>/dev/null || command -v podman 2>/dev/null)
+CONTAINER_TOOL ?= $(shell command -v docker 2>/dev/null || command -v podman 2>/dev/null)
 
 .PHONY: docker-build
 docker-build: fetch-batch-gateway
-	$(IMAGE_BUILDER) build -t $(IMG) -f Dockerfile .
+	$(CONTAINER_TOOL) build -t $(IMG) -f Dockerfile .
 
 .PHONY: docker-build-konflux
 docker-build-konflux: ## Build with Dockerfile.konflux
-	$(IMAGE_BUILDER) build -t $(IMG) -f Dockerfile.konflux .
+	$(CONTAINER_TOOL) build -t $(IMG) -f Dockerfile.konflux .
 
 .PHONY: docker-push
 docker-push:
-	$(IMAGE_BUILDER) push $(IMG)
+	$(CONTAINER_TOOL) push $(IMG)
 
 ## Install
 

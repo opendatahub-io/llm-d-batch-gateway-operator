@@ -45,9 +45,9 @@ die()  { echo "  [FATAL] $*" >&2; exit 1; }
 
 # ── Prerequisites ────────────────────────────────────────────────────────────
 
-IMAGE_BUILDER=""
+CONTAINER_TOOL=""
 
-detect_IMAGE_BUILDER() {
+detect_CONTAINER_TOOL() {
     if command -v docker &>/dev/null && docker info &>/dev/null 2>&1; then
         echo "docker"
     elif command -v podman &>/dev/null; then
@@ -66,11 +66,11 @@ check_prerequisites() {
     if [ ${#missing[@]} -gt 0 ]; then
         die "Missing required tools: ${missing[*]}"
     fi
-    IMAGE_BUILDER="$(detect_IMAGE_BUILDER)"
-    if [ "${IMAGE_BUILDER}" = "podman" ]; then
+    CONTAINER_TOOL="$(detect_CONTAINER_TOOL)"
+    if [ "${CONTAINER_TOOL}" = "podman" ]; then
         export KIND_EXPERIMENTAL_PROVIDER=podman
     fi
-    log "Container tool: ${IMAGE_BUILDER}"
+    log "Container tool: ${CONTAINER_TOOL}"
 }
 
 # ── Kind Cluster ─────────────────────────────────────────────────────────────
@@ -215,16 +215,16 @@ build_operator() {
     step "Building operator image '${OPERATOR_IMG}'..."
     cd "${OPERATOR_DIR}"
     local build_args=(-t "${OPERATOR_IMG}" -f Dockerfile)
-    if [ "${IMAGE_BUILDER}" = "podman" ]; then
+    if [ "${CONTAINER_TOOL}" = "podman" ]; then
         build_args+=(--ignorefile Dockerfile.dockerignore)
     fi
-    ${IMAGE_BUILDER} build "${build_args[@]}" .
+    ${CONTAINER_TOOL} build "${build_args[@]}" .
     log "Operator image built."
 }
 
 load_operator() {
     step "Loading operator image into Kind..."
-    if [ "${IMAGE_BUILDER}" = "podman" ]; then
+    if [ "${CONTAINER_TOOL}" = "podman" ]; then
         podman save "${OPERATOR_IMG}" | kind load image-archive /dev/stdin --name "${KIND_CLUSTER_NAME}"
     else
         kind load docker-image "${OPERATOR_IMG}" --name "${KIND_CLUSTER_NAME}"
