@@ -177,9 +177,9 @@ This creates a Kind cluster and deploys PostgreSQL, Redis, MinIO, a vLLM simulat
 | `POSTGRESQL_PASSWORD` | `postgres` | PostgreSQL password |
 | `MINIO_ACCESS_KEY` | `minioadmin` | MinIO access key |
 | `MINIO_SECRET_KEY` | `minioadmin` | MinIO secret key |
-| `APISERVER_IMG` | `ghcr.io/llm-d-incubation/batch-gateway-apiserver:latest` | API server image |
-| `PROCESSOR_IMG` | `ghcr.io/llm-d-incubation/batch-gateway-processor:latest` | Processor image |
-| `GC_IMG` | `ghcr.io/llm-d-incubation/batch-gateway-gc:latest` | GC image |
+| `APISERVER_IMG` | `ghcr.io/llm-d/batch-gateway-apiserver:latest` | API server image |
+| `PROCESSOR_IMG` | `ghcr.io/llm-d/batch-gateway-processor:latest` | Processor image |
+| `GC_IMG` | `ghcr.io/llm-d/batch-gateway-gc:latest` | GC image |
 | `APISERVER_NODE_PORT` | `30080` | NodePort for API server |
 
 Once the environment is up, run the upstream e2e tests:

@@ -20,9 +20,9 @@ func testSecretName(gw *batchv1alpha1.LLMBatchGateway) string {
 // operator reads from its environment (params.env) in production.
 func testImages() ComponentImages {
 	return ComponentImages{
-		APIServer: "ghcr.io/llm-d-incubation/batch-gateway-apiserver:latest",
-		Processor: "ghcr.io/llm-d-incubation/batch-gateway-processor:latest",
-		GC:        "ghcr.io/llm-d-incubation/batch-gateway-gc:latest",
+		APIServer: "ghcr.io/llm-d/batch-gateway-apiserver:latest",
+		Processor: "ghcr.io/llm-d/batch-gateway-processor:latest",
+		GC:        "ghcr.io/llm-d/batch-gateway-gc:latest",
 	}
 }
 
@@ -35,20 +35,20 @@ func TestSplitImage(t *testing.T) {
 	}{
 		{
 			name:     "standard image with tag",
-			image:    "ghcr.io/llm-d-incubation/batch-gateway-apiserver:v0.1.0",
-			wantRepo: "ghcr.io/llm-d-incubation/batch-gateway-apiserver",
+			image:    "ghcr.io/llm-d/batch-gateway-apiserver:v0.1.0",
+			wantRepo: "ghcr.io/llm-d/batch-gateway-apiserver",
 			wantTag:  "v0.1.0",
 		},
 		{
 			name:     "image with latest tag",
-			image:    "ghcr.io/llm-d-incubation/batch-gateway-apiserver:latest",
-			wantRepo: "ghcr.io/llm-d-incubation/batch-gateway-apiserver",
+			image:    "ghcr.io/llm-d/batch-gateway-apiserver:latest",
+			wantRepo: "ghcr.io/llm-d/batch-gateway-apiserver",
 			wantTag:  "latest",
 		},
 		{
 			name:     "image without tag",
-			image:    "ghcr.io/llm-d-incubation/batch-gateway-apiserver",
-			wantRepo: "ghcr.io/llm-d-incubation/batch-gateway-apiserver",
+			image:    "ghcr.io/llm-d/batch-gateway-apiserver",
+			wantRepo: "ghcr.io/llm-d/batch-gateway-apiserver",
 			wantTag:  "latest",
 		},
 		{
@@ -65,14 +65,14 @@ func TestSplitImage(t *testing.T) {
 		},
 		{
 			name:     "image with sha tag prefix",
-			image:    "ghcr.io/llm-d-incubation/batch-gateway-apiserver:sha-abc123",
-			wantRepo: "ghcr.io/llm-d-incubation/batch-gateway-apiserver",
+			image:    "ghcr.io/llm-d/batch-gateway-apiserver:sha-abc123",
+			wantRepo: "ghcr.io/llm-d/batch-gateway-apiserver",
 			wantTag:  "sha-abc123",
 		},
 		{
 			name:     "digest splits so chart reconstructs repo@sha256:hex correctly",
-			image:    "ghcr.io/llm-d-incubation/batch-gateway-apiserver@sha256:abc123def456",
-			wantRepo: "ghcr.io/llm-d-incubation/batch-gateway-apiserver@sha256",
+			image:    "ghcr.io/llm-d/batch-gateway-apiserver@sha256:abc123def456",
+			wantRepo: "ghcr.io/llm-d/batch-gateway-apiserver@sha256",
 			wantTag:  "abc123def456",
 		},
 		{
@@ -137,9 +137,9 @@ func TestSpecToHelmValues(t *testing.T) {
 	}
 
 	vals := specToHelmValues(gw, testSecretName(gw), ComponentImages{
-		APIServer: "ghcr.io/llm-d-incubation/batch-gateway-apiserver:v0.1.0",
-		Processor: "ghcr.io/llm-d-incubation/batch-gateway-processor:v0.1.0",
-		GC:        "ghcr.io/llm-d-incubation/batch-gateway-gc:v0.1.0",
+		APIServer: "ghcr.io/llm-d/batch-gateway-apiserver:v0.1.0",
+		Processor: "ghcr.io/llm-d/batch-gateway-processor:v0.1.0",
+		GC:        "ghcr.io/llm-d/batch-gateway-gc:v0.1.0",
 	})
 
 	t.Run("global secret name", func(t *testing.T) {
@@ -175,7 +175,7 @@ func TestSpecToHelmValues(t *testing.T) {
 	t.Run("apiserver image split", func(t *testing.T) {
 		apiserver := vals["apiserver"].(map[string]interface{})
 		img := apiserver["image"].(map[string]interface{})
-		if got := img["repository"]; got != "ghcr.io/llm-d-incubation/batch-gateway-apiserver" {
+		if got := img["repository"]; got != "ghcr.io/llm-d/batch-gateway-apiserver" {
 			t.Errorf("image.repository = %v", got)
 		}
 		if got := img["tag"]; got != "v0.1.0" {
