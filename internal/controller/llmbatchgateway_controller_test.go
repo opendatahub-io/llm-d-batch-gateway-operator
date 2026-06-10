@@ -232,7 +232,7 @@ func TestReconcile(t *testing.T) {
 			conditionTypes[c.Type] = true
 		}
 
-		for _, ct := range []string{conditionReady, conditionAPIServerAvailable, conditionProcessorAvailable} {
+		for _, ct := range []string{conditionReady, conditionAPIServerAvailable, conditionProcessorAvailable, conditionGCAvailable} {
 			if !conditionTypes[ct] {
 				t.Errorf("missing condition %q", ct)
 			}
@@ -384,7 +384,7 @@ func TestReconcile(t *testing.T) {
 			t.Fatalf("getting updated CR: %v", err)
 		}
 
-		for _, condType := range []string{conditionReady, conditionAPIServerAvailable, conditionProcessorAvailable} {
+		for _, condType := range []string{conditionReady, conditionAPIServerAvailable, conditionProcessorAvailable, conditionGCAvailable} {
 			found := false
 			for _, c := range updated.Status.Conditions {
 				if c.Type == condType {
@@ -401,6 +401,9 @@ func TestReconcile(t *testing.T) {
 			if !found {
 				t.Errorf("missing condition %s", condType)
 			}
+		}
+		if updated.Status.ObservedGeneration != updated.Generation {
+			t.Errorf("observedGeneration = %d, want %d", updated.Status.ObservedGeneration, updated.Generation)
 		}
 
 		assertEvent(t, fakeRecorder, corev1.EventTypeWarning, "ValidationFailed")
@@ -441,6 +444,9 @@ func TestReconcile(t *testing.T) {
 				if c.Reason != "ValidationFailed" {
 					t.Errorf("Ready reason = %v, want ValidationFailed", c.Reason)
 				}
+				if updated.Status.ObservedGeneration != updated.Generation {
+					t.Errorf("observedGeneration = %d, want %d", updated.Status.ObservedGeneration, updated.Generation)
+				}
 				return
 			}
 		}
@@ -474,6 +480,9 @@ func TestReconcile(t *testing.T) {
 				}
 				if c.Reason != reasonReferenceNotPermitted {
 					t.Errorf("Ready reason = %q, want %q", c.Reason, reasonReferenceNotPermitted)
+				}
+				if updated.Status.ObservedGeneration != updated.Generation {
+					t.Errorf("observedGeneration = %d, want %d", updated.Status.ObservedGeneration, updated.Generation)
 				}
 				assertEvent(t, fakeRecorder, corev1.EventTypeWarning, reasonReferenceNotPermitted)
 				return
@@ -526,6 +535,9 @@ func TestReconcile(t *testing.T) {
 				}
 				if c.Reason != reasonSecretRefImmutable {
 					t.Errorf("Ready reason = %q, want %q", c.Reason, reasonSecretRefImmutable)
+				}
+				if updated.Status.ObservedGeneration != updated.Generation {
+					t.Errorf("observedGeneration = %d, want %d", updated.Status.ObservedGeneration, updated.Generation)
 				}
 				assertEvent(t, fakeRecorder, corev1.EventTypeWarning, reasonSecretRefImmutable)
 				return

@@ -35,7 +35,7 @@ spec:
     - name: url
       value: https://github.com/opendatahub-io/odh-konflux-central.git
     - name: revision
-      value: main
+      value: fe0f0aa1ba2c59ba013d8b973642edaab17bb967
     - name: pathInRepo
       value: pipeline/multi-arch-container-build.yaml
   taskRunTemplate:

@@ -375,9 +375,6 @@ func inferenceGatewayToMap(gw *batchv1alpha1.InferenceGatewaySpec) map[string]in
 	}
 	setIfNotEmpty(m, "initialBackoff", gw.InitialBackoff)
 	setIfNotEmpty(m, "maxBackoff", gw.MaxBackoff)
-	if gw.TLSInsecureSkipVerify {
-		m["tlsInsecureSkipVerify"] = true
-	}
 	setIfNotEmpty(m, "tlsCaCertFile", gw.TLSCACertFile)
 	setIfNotEmpty(m, "tlsClientCertFile", gw.TLSClientCertFile)
 	setIfNotEmpty(m, "tlsClientKeyFile", gw.TLSClientKeyFile)

@@ -794,6 +794,23 @@ func TestSpecToHelmValues_InferenceGatewayMaxRetries(t *testing.T) {
 	}
 }
 
+func TestSpecToHelmValues_OmitsTLSInsecureSkipVerify(t *testing.T) {
+	gw := minimalGateway()
+	gw.Spec.Processor.GlobalInferenceGateway = &batchv1alpha1.InferenceGatewaySpec{
+		URL:                   "https://gw:8443",
+		TLSInsecureSkipVerify: true,
+	}
+
+	vals := specToHelmValues(gw, testSecretName(gw), testImages())
+
+	processor := vals["processor"].(map[string]interface{})
+	config := processor["config"].(map[string]interface{})
+	gig := config["globalInferenceGateway"].(map[string]interface{})
+	if _, found := gig["tlsInsecureSkipVerify"]; found {
+		t.Fatal("tlsInsecureSkipVerify should not be rendered into Helm values")
+	}
+}
+
 func TestSpecToHelmValues_ResourceRequirements(t *testing.T) {
 	gw := minimalGateway()
 	gw.Spec.APIServer.Resources = &corev1.ResourceRequirements{

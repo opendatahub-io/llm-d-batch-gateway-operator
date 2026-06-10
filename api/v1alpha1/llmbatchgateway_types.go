@@ -122,6 +122,7 @@ type S3StorageSpec struct {
 
 	// Endpoint overrides the S3 endpoint URL for non-AWS providers (e.g. MinIO).
 	// +kubebuilder:validation:MaxLength=2048
+	// +kubebuilder:validation:Pattern=`^https?://.+$`
 	Endpoint string `json:"endpoint,omitempty"`
 
 	// AccessKeyID is the S3 access key ID (non-sensitive). The corresponding
@@ -274,10 +275,12 @@ type ProcessorSpec struct {
 }
 
 // InferenceGatewaySpec configures a connection to an inference gateway.
+// +kubebuilder:validation:XValidation:rule="!has(self.tlsInsecureSkipVerify) || !self.tlsInsecureSkipVerify",message="tlsInsecureSkipVerify is not allowed; configure trusted CA certificates instead"
 type InferenceGatewaySpec struct {
 	// URL is the base URL of the inference gateway (e.g. "http://gateway.svc:8000").
 	// +kubebuilder:validation:Required
 	// +kubebuilder:validation:MaxLength=2048
+	// +kubebuilder:validation:Pattern=`^https?://.+$`
 	URL string `json:"url"`
 
 	// RequestTimeout is the maximum time to wait for a single inference response (e.g. "5m").
@@ -398,6 +401,7 @@ type PrometheusRuleSpec struct {
 type OTELSpec struct {
 	// Endpoint is the OTLP gRPC or HTTP endpoint (e.g. "http://collector:4317").
 	// +kubebuilder:validation:MaxLength=2048
+	// +kubebuilder:validation:Pattern=`^https?://.+$`
 	Endpoint string `json:"endpoint,omitempty"`
 
 	// Insecure disables TLS for the OTLP connection.
