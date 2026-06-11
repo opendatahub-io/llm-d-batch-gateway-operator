@@ -146,6 +146,15 @@ spec:
                         format: int32
                         type: integer
                     type: object
+                  imagePullPolicy:
+                    description: |-
+                      ImagePullPolicy overrides the image pull policy for the API server container.
+                      Useful for development workflows where the image is loaded directly into the cluster node.
+                    enum:
+                    - Always
+                    - Never
+                    - IfNotPresent
+                    type: string
                   replicas:
                     default: 1
                     description: |-
@@ -331,6 +340,15 @@ spec:
                         format: int32
                         type: integer
                     type: object
+                  imagePullPolicy:
+                    description: |-
+                      ImagePullPolicy overrides the image pull policy for the GC container.
+                      Useful for development workflows where the image is loaded directly into the cluster node.
+                    enum:
+                    - Always
+                    - Never
+                    - IfNotPresent
+                    type: string
                   interval:
                     default: 30m
                     description: Interval is how often the GC runs (e.g. "30m").
@@ -538,6 +556,15 @@ spec:
                     - message: tlsInsecureSkipVerify is not allowed; configure trusted
                         CA certificates instead
                       rule: '!has(self.tlsInsecureSkipVerify) || !self.tlsInsecureSkipVerify'
+                  imagePullPolicy:
+                    description: |-
+                      ImagePullPolicy overrides the image pull policy for the processor container.
+                      Useful for development workflows where the image is loaded directly into the cluster node.
+                    enum:
+                    - Always
+                    - Never
+                    - IfNotPresent
+                    type: string
                   modelGateways:
                     additionalProperties:
                       description: InferenceGatewaySpec configures a connection to

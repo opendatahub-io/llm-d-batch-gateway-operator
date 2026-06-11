@@ -185,6 +185,11 @@ type APIServerSpec struct {
 
 	// Config holds fine-grained API server configuration.
 	Config *APIServerConfigSpec `json:"config,omitempty"`
+
+	// ImagePullPolicy overrides the image pull policy for the API server container.
+	// Useful for development workflows where the image is loaded directly into the cluster node.
+	// +kubebuilder:validation:Enum=Always;Never;IfNotPresent
+	ImagePullPolicy corev1.PullPolicy `json:"imagePullPolicy,omitempty"`
 }
 
 // APIServerConfigSpec holds fine-grained configuration for the API server process.
@@ -261,6 +266,11 @@ type ProcessorSpec struct {
 
 	// Resources defines CPU and memory requests/limits for the processor container.
 	Resources *corev1.ResourceRequirements `json:"resources,omitempty"`
+
+	// ImagePullPolicy overrides the image pull policy for the processor container.
+	// Useful for development workflows where the image is loaded directly into the cluster node.
+	// +kubebuilder:validation:Enum=Always;Never;IfNotPresent
+	ImagePullPolicy corev1.PullPolicy `json:"imagePullPolicy,omitempty"`
 
 	// GlobalInferenceGateway is the default inference gateway used for all models
 	// unless overridden by a ModelGateways entry.
@@ -359,6 +369,11 @@ type GCSpec struct {
 
 	// Config holds fine-grained GC configuration.
 	Config *GCConfigSpec `json:"config,omitempty"`
+
+	// ImagePullPolicy overrides the image pull policy for the GC container.
+	// Useful for development workflows where the image is loaded directly into the cluster node.
+	// +kubebuilder:validation:Enum=Always;Never;IfNotPresent
+	ImagePullPolicy corev1.PullPolicy `json:"imagePullPolicy,omitempty"`
 }
 
 // GCConfigSpec holds fine-grained configuration for the garbage-collector process.

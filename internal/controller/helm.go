@@ -157,12 +157,16 @@ func specToHelmValues(gw *batchv1alpha1.LLMBatchGateway, secretName string, imag
 
 	// --- API Server ---
 	apiRepo, apiTag := splitImage(images.APIServer)
-	apiserver := map[string]interface{}{
+	apiserverImage := map[string]any{
+		"repository": apiRepo,
+		"tag":        apiTag,
+	}
+	if gw.Spec.APIServer.ImagePullPolicy != "" {
+		apiserverImage["pullPolicy"] = string(gw.Spec.APIServer.ImagePullPolicy)
+	}
+	apiserver := map[string]any{
 		"enabled": true,
-		"image": map[string]interface{}{
-			"repository": apiRepo,
-			"tag":        apiTag,
-		},
+		"image":   apiserverImage,
 		"serviceAccount": map[string]interface{}{
 			"create": true,
 		},
@@ -236,12 +240,16 @@ func specToHelmValues(gw *batchv1alpha1.LLMBatchGateway, secretName string, imag
 
 	// --- Processor ---
 	procRepo, procTag := splitImage(images.Processor)
-	processor := map[string]interface{}{
+	processorImage := map[string]any{
+		"repository": procRepo,
+		"tag":        procTag,
+	}
+	if gw.Spec.Processor.ImagePullPolicy != "" {
+		processorImage["pullPolicy"] = string(gw.Spec.Processor.ImagePullPolicy)
+	}
+	processor := map[string]any{
 		"enabled": true,
-		"image": map[string]interface{}{
-			"repository": procRepo,
-			"tag":        procTag,
-		},
+		"image":   processorImage,
 		"serviceAccount": map[string]interface{}{
 			"create": true,
 		},
@@ -285,12 +293,16 @@ func specToHelmValues(gw *batchv1alpha1.LLMBatchGateway, secretName string, imag
 
 	// --- GC ---
 	gcRepo, gcTag := splitImage(images.GC)
-	gc := map[string]interface{}{
+	gcImage := map[string]any{
+		"repository": gcRepo,
+		"tag":        gcTag,
+	}
+	if gw.Spec.GC.ImagePullPolicy != "" {
+		gcImage["pullPolicy"] = string(gw.Spec.GC.ImagePullPolicy)
+	}
+	gc := map[string]any{
 		"enabled": true,
-		"image": map[string]interface{}{
-			"repository": gcRepo,
-			"tag":        gcTag,
-		},
+		"image":   gcImage,
 		"serviceAccount": map[string]interface{}{
 			"create": true,
 		},
