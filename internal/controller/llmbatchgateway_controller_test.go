@@ -10,6 +10,7 @@ import (
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/api/resource"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/tools/record"
 	"k8s.io/utils/ptr"
@@ -546,6 +547,284 @@ func TestReconcile(t *testing.T) {
 		t.Error("missing Ready condition")
 	})
 
+	t.Run("updates processor replicas on spec change", func(t *testing.T) {
+		gw := newTestGateway("test-proc-replicas")
+		if err := k8sClient.Create(ctx, gw); err != nil {
+			t.Fatalf("creating CR: %v", err)
+		}
+		t.Cleanup(func() { _ = k8sClient.Delete(ctx, gw) })
+
+		nn := types.NamespacedName{Name: gw.Name, Namespace: gw.Namespace}
+
+		_, err := reconciler.Reconcile(ctx, reconcile.Request{NamespacedName: nn})
+		if err != nil {
+			t.Fatalf("first Reconcile() error: %v", err)
+		}
+
+		if err := k8sClient.Get(ctx, nn, gw); err != nil {
+			t.Fatalf("getting CR for update: %v", err)
+		}
+		gw.Spec.Processor.Replicas = ptr.To(int32(5))
+		if err := k8sClient.Update(ctx, gw); err != nil {
+			t.Fatalf("updating CR: %v", err)
+		}
+
+		_, err = reconciler.Reconcile(ctx, reconcile.Request{NamespacedName: nn})
+		if err != nil {
+			t.Fatalf("second Reconcile() error: %v", err)
+		}
+
+		assertDeploymentReplicas(t, ctx, gw, "processor", 5)
+	})
+
+	t.Run("updates apiserver resources on spec change", func(t *testing.T) {
+		gw := newTestGateway("test-api-resources")
+		if err := k8sClient.Create(ctx, gw); err != nil {
+			t.Fatalf("creating CR: %v", err)
+		}
+		t.Cleanup(func() { _ = k8sClient.Delete(ctx, gw) })
+
+		nn := types.NamespacedName{Name: gw.Name, Namespace: gw.Namespace}
+
+		_, err := reconciler.Reconcile(ctx, reconcile.Request{NamespacedName: nn})
+		if err != nil {
+			t.Fatalf("first Reconcile() error: %v", err)
+		}
+
+		if err := k8sClient.Get(ctx, nn, gw); err != nil {
+			t.Fatalf("getting CR for update: %v", err)
+		}
+		gw.Spec.APIServer.Resources = &corev1.ResourceRequirements{
+			Requests: corev1.ResourceList{
+				corev1.ResourceCPU:    resource.MustParse("500m"),
+				corev1.ResourceMemory: resource.MustParse("256Mi"),
+			},
+			Limits: corev1.ResourceList{
+				corev1.ResourceCPU:    resource.MustParse("1"),
+				corev1.ResourceMemory: resource.MustParse("512Mi"),
+			},
+		}
+		if err := k8sClient.Update(ctx, gw); err != nil {
+			t.Fatalf("updating CR: %v", err)
+		}
+
+		_, err = reconciler.Reconcile(ctx, reconcile.Request{NamespacedName: nn})
+		if err != nil {
+			t.Fatalf("second Reconcile() error: %v", err)
+		}
+
+		d := findOwnedDeployment(t, ctx, gw, "apiserver")
+		containers := d.Spec.Template.Spec.Containers
+		if len(containers) == 0 {
+			t.Fatal("apiserver deployment has no containers")
+		}
+		res := containers[0].Resources
+		assertResourceValue(t, "apiserver requests.cpu", res.Requests, corev1.ResourceCPU, "500m")
+		assertResourceValue(t, "apiserver requests.memory", res.Requests, corev1.ResourceMemory, "256Mi")
+		assertResourceValue(t, "apiserver limits.cpu", res.Limits, corev1.ResourceCPU, "1")
+		assertResourceValue(t, "apiserver limits.memory", res.Limits, corev1.ResourceMemory, "512Mi")
+	})
+
+	t.Run("dbBackend change updates all ConfigMaps and Deployments", func(t *testing.T) {
+		gw := newTestGateway("test-dbbackend")
+		if err := k8sClient.Create(ctx, gw); err != nil {
+			t.Fatalf("creating CR: %v", err)
+		}
+		t.Cleanup(func() { _ = k8sClient.Delete(ctx, gw) })
+
+		nn := types.NamespacedName{Name: gw.Name, Namespace: gw.Namespace}
+
+		_, err := reconciler.Reconcile(ctx, reconcile.Request{NamespacedName: nn})
+		if err != nil {
+			t.Fatalf("first Reconcile() error: %v", err)
+		}
+
+		checksumsBefore := map[string]string{}
+		for _, component := range []string{"apiserver", "processor", "gc"} {
+			d := findOwnedDeployment(t, ctx, gw, component)
+			checksumsBefore[component] = d.Spec.Template.Annotations["checksum/config"]
+		}
+
+		if err := k8sClient.Get(ctx, nn, gw); err != nil {
+			t.Fatalf("getting CR for update: %v", err)
+		}
+		gw.Spec.DBBackend = "redis"
+		if err := k8sClient.Update(ctx, gw); err != nil {
+			t.Fatalf("updating CR: %v", err)
+		}
+
+		_, err = reconciler.Reconcile(ctx, reconcile.Request{NamespacedName: nn})
+		if err != nil {
+			t.Fatalf("second Reconcile() error: %v", err)
+		}
+
+		for _, component := range []string{"apiserver", "processor", "gc"} {
+			cm := getOwnedConfigMap(t, ctx, gw, component)
+			assertConfigMapContains(t, cm, `type: "redis"`)
+
+			d := findOwnedDeployment(t, ctx, gw, component)
+			after := d.Spec.Template.Annotations["checksum/config"]
+			if after == checksumsBefore[component] {
+				t.Errorf("%s deployment pod template not updated after dbBackend change", component)
+			}
+		}
+	})
+
+	t.Run("apiserver config change updates ConfigMap and Deployment", func(t *testing.T) {
+		gw := newTestGateway("test-api-config")
+		if err := k8sClient.Create(ctx, gw); err != nil {
+			t.Fatalf("creating CR: %v", err)
+		}
+		t.Cleanup(func() { _ = k8sClient.Delete(ctx, gw) })
+
+		nn := types.NamespacedName{Name: gw.Name, Namespace: gw.Namespace}
+
+		_, err := reconciler.Reconcile(ctx, reconcile.Request{NamespacedName: nn})
+		if err != nil {
+			t.Fatalf("first Reconcile() error: %v", err)
+		}
+
+		apiBefore := findOwnedDeployment(t, ctx, gw, "apiserver")
+		checksumBefore := apiBefore.Spec.Template.Annotations["checksum/config"]
+
+		if err := k8sClient.Get(ctx, nn, gw); err != nil {
+			t.Fatalf("getting CR for update: %v", err)
+		}
+		gw.Spec.APIServer.Config = &batchv1alpha1.APIServerConfigSpec{
+			Port:                9090,
+			ReadTimeoutSeconds:  120,
+			WriteTimeoutSeconds: 180,
+			EnablePprof:         true,
+		}
+		if err := k8sClient.Update(ctx, gw); err != nil {
+			t.Fatalf("updating CR: %v", err)
+		}
+
+		_, err = reconciler.Reconcile(ctx, reconcile.Request{NamespacedName: nn})
+		if err != nil {
+			t.Fatalf("second Reconcile() error: %v", err)
+		}
+
+		cm := getOwnedConfigMap(t, ctx, gw, "apiserver")
+		assertConfigMapContains(t, cm, `port: "9090"`)
+		assertConfigMapContains(t, cm, "read_timeout_seconds: 120")
+		assertConfigMapContains(t, cm, "write_timeout_seconds: 180")
+		assertConfigMapContains(t, cm, "enable_pprof: true")
+
+		apiAfter := findOwnedDeployment(t, ctx, gw, "apiserver")
+		checksumAfter := apiAfter.Spec.Template.Annotations["checksum/config"]
+		if checksumAfter == checksumBefore {
+			t.Error("apiserver deployment pod template not updated after config change")
+		}
+
+		// The Deployment must expose the new port on the container.
+		found := false
+		for _, p := range apiAfter.Spec.Template.Spec.Containers[0].Ports {
+			if p.Name == "http" && p.ContainerPort == 9090 {
+				found = true
+			}
+		}
+		if !found {
+			t.Error("apiserver deployment container port 'http' not updated to 9090")
+		}
+	})
+
+	t.Run("processor config change updates ConfigMap and Deployment", func(t *testing.T) {
+		gw := newTestGateway("test-proc-config")
+		if err := k8sClient.Create(ctx, gw); err != nil {
+			t.Fatalf("creating CR: %v", err)
+		}
+		t.Cleanup(func() { _ = k8sClient.Delete(ctx, gw) })
+
+		nn := types.NamespacedName{Name: gw.Name, Namespace: gw.Namespace}
+
+		_, err := reconciler.Reconcile(ctx, reconcile.Request{NamespacedName: nn})
+		if err != nil {
+			t.Fatalf("first Reconcile() error: %v", err)
+		}
+
+		procBefore := findOwnedDeployment(t, ctx, gw, "processor")
+		checksumBefore := procBefore.Spec.Template.Annotations["checksum/config"]
+
+		if err := k8sClient.Get(ctx, nn, gw); err != nil {
+			t.Fatalf("getting CR for update: %v", err)
+		}
+		gw.Spec.Processor.Config = &batchv1alpha1.ProcessorConfigSpec{
+			NumWorkers:                     50,
+			GlobalConcurrency:              200,
+			PerModelMaxConcurrency:         25,
+			DefaultOutputExpirationSeconds: 7200,
+			EnablePprof:                    true,
+		}
+		if err := k8sClient.Update(ctx, gw); err != nil {
+			t.Fatalf("updating CR: %v", err)
+		}
+
+		_, err = reconciler.Reconcile(ctx, reconcile.Request{NamespacedName: nn})
+		if err != nil {
+			t.Fatalf("second Reconcile() error: %v", err)
+		}
+
+		cm := getOwnedConfigMap(t, ctx, gw, "processor")
+		assertConfigMapContains(t, cm, "num_workers: 50")
+		assertConfigMapContains(t, cm, "global: 200")
+		assertConfigMapContains(t, cm, "per_endpoint: 25")
+		assertConfigMapContains(t, cm, "default_output_expiration_seconds: 7200")
+		assertConfigMapContains(t, cm, "enable_pprof: true")
+
+		procAfter := findOwnedDeployment(t, ctx, gw, "processor")
+		checksumAfter := procAfter.Spec.Template.Annotations["checksum/config"]
+		if checksumAfter == checksumBefore {
+			t.Error("processor deployment pod template not updated after config change")
+		}
+	})
+
+	t.Run("gc config change updates ConfigMap and Deployment", func(t *testing.T) {
+		gw := newTestGateway("test-gc-config")
+		if err := k8sClient.Create(ctx, gw); err != nil {
+			t.Fatalf("creating CR: %v", err)
+		}
+		t.Cleanup(func() { _ = k8sClient.Delete(ctx, gw) })
+
+		nn := types.NamespacedName{Name: gw.Name, Namespace: gw.Namespace}
+
+		_, err := reconciler.Reconcile(ctx, reconcile.Request{NamespacedName: nn})
+		if err != nil {
+			t.Fatalf("first Reconcile() error: %v", err)
+		}
+
+		gcBefore := findOwnedDeployment(t, ctx, gw, "gc")
+		checksumBefore := gcBefore.Spec.Template.Annotations["checksum/config"]
+
+		if err := k8sClient.Get(ctx, nn, gw); err != nil {
+			t.Fatalf("getting CR for update: %v", err)
+		}
+		gw.Spec.GC.Interval = "1h"
+		gw.Spec.GC.Config = &batchv1alpha1.GCConfigSpec{
+			DryRun:         true,
+			MaxConcurrency: 10,
+		}
+		if err := k8sClient.Update(ctx, gw); err != nil {
+			t.Fatalf("updating CR: %v", err)
+		}
+
+		_, err = reconciler.Reconcile(ctx, reconcile.Request{NamespacedName: nn})
+		if err != nil {
+			t.Fatalf("second Reconcile() error: %v", err)
+		}
+
+		cm := getOwnedConfigMap(t, ctx, gw, "gc")
+		assertConfigMapContains(t, cm, `interval: "1h"`)
+		assertConfigMapContains(t, cm, "dry_run: true")
+		assertConfigMapContains(t, cm, "max_concurrency: 10")
+
+		gcAfter := findOwnedDeployment(t, ctx, gw, "gc")
+		checksumAfter := gcAfter.Spec.Template.Annotations["checksum/config"]
+		if checksumAfter == checksumBefore {
+			t.Error("gc deployment pod template not updated after config change")
+		}
+	})
+
 	t.Run("does not delete resources owned by a different CR", func(t *testing.T) {
 		gwA := newTestGateway("test-orphan-a")
 		gwA.Spec.Grafana = &batchv1alpha1.GrafanaSpec{Enabled: true}
@@ -683,6 +962,81 @@ func TestReconcileTimeout(t *testing.T) {
 	}
 	if !errors.Is(err, context.DeadlineExceeded) {
 		t.Errorf("Reconcile() error = %v, want context.DeadlineExceeded", err)
+	}
+}
+
+// getOwnedConfigMap returns the ConfigMap for the given component that is
+// owned by gw. ConfigMap names follow the pattern <name>-batch-gateway-<component>-config.
+func getOwnedConfigMap(t *testing.T, ctx context.Context, gw *batchv1alpha1.LLMBatchGateway, component string) *corev1.ConfigMap {
+	t.Helper()
+	cmName := gw.Name + "-batch-gateway-" + component + "-config"
+	var cm corev1.ConfigMap
+	if err := k8sClient.Get(ctx, types.NamespacedName{Name: cmName, Namespace: gw.Namespace}, &cm); err != nil {
+		t.Fatalf("getting %s configmap %s: %v", component, cmName, err)
+	}
+	if !isOwnedByUID(cm.OwnerReferences, gw.UID) {
+		t.Fatalf("configmap %s is not owned by %s", cmName, gw.Name)
+	}
+	return &cm
+}
+
+// assertConfigMapContains verifies that the config.yaml data in the ConfigMap
+// contains the expected substring.
+func assertConfigMapContains(t *testing.T, cm *corev1.ConfigMap, want string) {
+	t.Helper()
+	data := cm.Data["config.yaml"]
+	if !strings.Contains(data, want) {
+		t.Errorf("configmap %s config.yaml missing %q\ngot:\n%s", cm.Name, want, data)
+	}
+}
+
+// findOwnedDeployment returns the Deployment with the given component label
+// that is owned by gw. It fails the test if no such Deployment is found.
+func findOwnedDeployment(t *testing.T, ctx context.Context, gw *batchv1alpha1.LLMBatchGateway, component string) *appsv1.Deployment {
+	t.Helper()
+	var deployList appsv1.DeploymentList
+	if err := k8sClient.List(ctx, &deployList); err != nil {
+		t.Fatalf("listing deployments: %v", err)
+	}
+	for i := range deployList.Items {
+		d := &deployList.Items[i]
+		if !isOwnedByUID(d.OwnerReferences, gw.UID) {
+			continue
+		}
+		if d.Labels["app.kubernetes.io/component"] == component {
+			return d
+		}
+	}
+	t.Fatalf("no deployment found with component=%s owned by %s", component, gw.Name)
+	return nil
+}
+
+// assertDeploymentReplicas verifies that the Deployment for the given component
+// has the expected replica count.
+func assertDeploymentReplicas(t *testing.T, ctx context.Context, gw *batchv1alpha1.LLMBatchGateway, component string, want int32) {
+	t.Helper()
+	d := findOwnedDeployment(t, ctx, gw, component)
+	if d.Spec.Replicas == nil || *d.Spec.Replicas != want {
+		got := int32(0)
+		if d.Spec.Replicas != nil {
+			got = *d.Spec.Replicas
+		}
+		t.Errorf("%s replicas = %d, want %d", component, got, want)
+	}
+}
+
+// assertResourceValue verifies that the given resource list contains the expected
+// value for the named resource.
+func assertResourceValue(t *testing.T, label string, list corev1.ResourceList, name corev1.ResourceName, want string) {
+	t.Helper()
+	got, ok := list[name]
+	if !ok {
+		t.Errorf("%s: resource %s not set", label, name)
+		return
+	}
+	expected := resource.MustParse(want)
+	if got.Cmp(expected) != 0 {
+		t.Errorf("%s = %s, want %s", label, got.String(), expected.String())
 	}
 }
 
