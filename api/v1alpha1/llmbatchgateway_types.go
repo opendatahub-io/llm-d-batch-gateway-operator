@@ -327,6 +327,31 @@ type InferenceGatewaySpec struct {
 	TLSClientKeyFile string `json:"tlsClientKeyFile,omitempty"`
 }
 
+// AIMDConfig holds parameters for Additive Increase / Multiplicative Decrease
+// adaptive concurrency control per inference endpoint.
+type AIMDConfig struct {
+	// Enabled controls whether AIMD adaptive concurrency is active.
+	// When false, per-endpoint concurrency is fixed at ConcurrencyConfig.PerEndpoint.
+	Enabled *bool `json:"enabled,omitempty"`
+
+	// Min is the floor for per-endpoint adaptive concurrency.
+	// AIMD will never reduce a single endpoint's effective limit below this value.
+	// +kubebuilder:validation:Minimum=1
+	Min int32 `json:"min,omitempty"`
+
+	// BackoffFactor is the multiplicative decrease applied to the per-endpoint
+	// concurrency limit when the endpoint signals overload (429/5xx).
+	// Must be a decimal in (0, 1), e.g. "0.5".
+	// +kubebuilder:validation:Pattern=`^0\.[0-9]+$`
+	// +kubebuilder:validation:MaxLength=16
+	BackoffFactor string `json:"backoffFactor,omitempty"`
+
+	// AdditiveIncrease is the number of concurrency slots added after a full
+	// window of consecutive successes per endpoint.
+	// +kubebuilder:validation:Minimum=1
+	AdditiveIncrease int32 `json:"additiveIncrease,omitempty"`
+}
+
 // ConcurrencyConfig groups the dispatch-rate and concurrency control knobs.
 type ConcurrencyConfig struct {
 	// Global limits total in-flight inference requests across all workers.
@@ -342,6 +367,9 @@ type ConcurrencyConfig struct {
 	// Recovery limits concurrent job recoveries during startup.
 	// +kubebuilder:validation:Minimum=1
 	Recovery int32 `json:"recovery,omitempty"`
+
+	// AIMD holds adaptive concurrency control parameters.
+	AIMD *AIMDConfig `json:"aimd,omitempty"`
 }
 
 // ProcessorConfigSpec holds fine-grained configuration for the processor process.
