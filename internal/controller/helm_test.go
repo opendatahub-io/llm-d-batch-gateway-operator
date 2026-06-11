@@ -757,6 +757,49 @@ func TestSpecToHelmValues_ProcessorConfig(t *testing.T) {
 	}
 }
 
+func TestSpecToHelmValues_ProcessorAIMD(t *testing.T) {
+	enabled := true
+	gw := minimalGateway()
+	gw.Spec.Processor.Config = &batchv1alpha1.ProcessorConfigSpec{
+		Concurrency: &batchv1alpha1.ConcurrencyConfig{
+			Global:      100,
+			PerEndpoint: 10,
+			Recovery:    5,
+			AIMD: &batchv1alpha1.AIMDConfig{
+				Enabled:          &enabled,
+				Min:              3,
+				BackoffFactor:    "0.5",
+				AdditiveIncrease: 2,
+			},
+		},
+	}
+
+	vals := specToHelmValues(gw, testSecretName(gw), testImages())
+
+	processor := vals["processor"].(map[string]interface{})
+	config := processor["config"].(map[string]interface{})
+	concurrency, ok := config["concurrency"].(map[string]interface{})
+	if !ok {
+		t.Fatalf("concurrency not found or wrong type: %T", config["concurrency"])
+	}
+	aimd, ok := concurrency["aimd"].(map[string]interface{})
+	if !ok {
+		t.Fatalf("concurrency.aimd not found or wrong type: %T", concurrency["aimd"])
+	}
+	if got := aimd["enabled"]; got != true {
+		t.Errorf("aimd.enabled = %v, want true", got)
+	}
+	if got := aimd["min"]; got != int64(3) {
+		t.Errorf("aimd.min = %v, want 3", got)
+	}
+	if got := aimd["backoffFactor"]; got != "0.5" {
+		t.Errorf("aimd.backoffFactor = %v, want 0.5", got)
+	}
+	if got := aimd["additiveIncrease"]; got != int64(2) {
+		t.Errorf("aimd.additiveIncrease = %v, want 2", got)
+	}
+}
+
 func TestSpecToHelmValues_GCConfig(t *testing.T) {
 	gw := minimalGateway()
 	gw.Spec.GC.Config = &batchv1alpha1.GCConfigSpec{

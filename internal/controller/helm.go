@@ -472,6 +472,22 @@ func mergeProcessorConfig(m map[string]interface{}, cfg *batchv1alpha1.Processor
 		if cfg.Concurrency.Recovery != 0 {
 			concurrency["recovery"] = int64(cfg.Concurrency.Recovery)
 		}
+		if cfg.Concurrency.AIMD != nil {
+			aimd := map[string]interface{}{}
+			if cfg.Concurrency.AIMD.Enabled != nil {
+				aimd["enabled"] = *cfg.Concurrency.AIMD.Enabled
+			}
+			if cfg.Concurrency.AIMD.Min != 0 {
+				aimd["min"] = int64(cfg.Concurrency.AIMD.Min)
+			}
+			setIfNotEmpty(aimd, "backoffFactor", cfg.Concurrency.AIMD.BackoffFactor)
+			if cfg.Concurrency.AIMD.AdditiveIncrease != 0 {
+				aimd["additiveIncrease"] = int64(cfg.Concurrency.AIMD.AdditiveIncrease)
+			}
+			if len(aimd) > 0 {
+				concurrency["aimd"] = aimd
+			}
+		}
 		if len(concurrency) > 0 {
 			m["concurrency"] = concurrency
 		}
