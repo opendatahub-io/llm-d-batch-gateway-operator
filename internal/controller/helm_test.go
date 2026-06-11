@@ -332,11 +332,8 @@ func TestNewHelmRenderer(t *testing.T) {
 		if err != nil {
 			t.Fatalf("NewHelmRenderer() error: %v", err)
 		}
-		if renderer == nil {
-			t.Fatal("renderer is nil")
-		}
-		if renderer.chart == nil {
-			t.Fatal("chart is nil")
+		if renderer == nil || renderer.chart == nil {
+			t.Fatal("renderer or chart is nil")
 		}
 	})
 
@@ -713,10 +710,12 @@ func TestSpecToHelmValues_APIServerConfig(t *testing.T) {
 func TestSpecToHelmValues_ProcessorConfig(t *testing.T) {
 	gw := minimalGateway()
 	gw.Spec.Processor.Config = &batchv1alpha1.ProcessorConfigSpec{
-		NumWorkers:                     8,
-		GlobalConcurrency:              32,
-		PerModelMaxConcurrency:         16,
-		RecoveryMaxConcurrency:         4,
+		NumWorkers: 8,
+		Concurrency: &batchv1alpha1.ConcurrencyConfig{
+			Global:      32,
+			PerEndpoint: 16,
+			Recovery:    4,
+		},
 		InferenceObjective:             "throughput",
 		DefaultOutputExpirationSeconds: 7200,
 		ProgressTTLSeconds:             3600,
@@ -731,14 +730,18 @@ func TestSpecToHelmValues_ProcessorConfig(t *testing.T) {
 	if got := config["numWorkers"]; got != int64(8) {
 		t.Errorf("numWorkers = %v, want 8", got)
 	}
-	if got := config["globalConcurrency"]; got != int64(32) {
-		t.Errorf("globalConcurrency = %v, want 32", got)
+	concurrency, ok := config["concurrency"].(map[string]interface{})
+	if !ok {
+		t.Fatalf("concurrency not found or wrong type: %T", config["concurrency"])
 	}
-	if got := config["perModelMaxConcurrency"]; got != int64(16) {
-		t.Errorf("perModelMaxConcurrency = %v, want 16", got)
+	if got := concurrency["global"]; got != int64(32) {
+		t.Errorf("concurrency.global = %v, want 32", got)
 	}
-	if got := config["recoveryMaxConcurrency"]; got != int64(4) {
-		t.Errorf("recoveryMaxConcurrency = %v, want 4", got)
+	if got := concurrency["perEndpoint"]; got != int64(16) {
+		t.Errorf("concurrency.perEndpoint = %v, want 16", got)
+	}
+	if got := concurrency["recovery"]; got != int64(4) {
+		t.Errorf("concurrency.recovery = %v, want 4", got)
 	}
 	if got := config["inferenceObjective"]; got != "throughput" {
 		t.Errorf("inferenceObjective = %v, want throughput", got)
