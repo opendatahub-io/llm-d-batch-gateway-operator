@@ -447,6 +447,31 @@ spec:
                   config:
                     description: Config holds fine-grained processor configuration.
                     properties:
+                      concurrency:
+                        description: Concurrency groups all dispatch-rate and concurrency
+                          control knobs.
+                        properties:
+                          global:
+                            description: |-
+                              Global limits total in-flight inference requests across all workers.
+                              Acts as a fixed ceiling — the sum of all per-endpoint concurrency is
+                              bounded by this value.
+                            format: int32
+                            minimum: 1
+                            type: integer
+                          perEndpoint:
+                            description: PerEndpoint is the initial and maximum concurrency
+                              per inference endpoint.
+                            format: int32
+                            minimum: 1
+                            type: integer
+                          recovery:
+                            description: Recovery limits concurrent job recoveries
+                              during startup.
+                            format: int32
+                            minimum: 1
+                            type: integer
+                        type: object
                       defaultOutputExpirationSeconds:
                         description: DefaultOutputExpirationSeconds is the TTL for
                           job output files.
@@ -456,11 +481,6 @@ spec:
                         description: EnablePprof enables the Go pprof profiling HTTP
                           endpoints.
                         type: boolean
-                      globalConcurrency:
-                        description: GlobalConcurrency is the maximum number of in-flight
-                          inference requests across all models.
-                        format: int32
-                        type: integer
                       inferenceObjective:
                         description: InferenceObjective specifies the scheduling objective
                           (e.g. "throughput", "latency").
@@ -480,20 +500,10 @@ spec:
                           goroutines processing jobs.
                         format: int32
                         type: integer
-                      perModelMaxConcurrency:
-                        description: PerModelMaxConcurrency is the maximum number
-                          of in-flight inference requests per model.
-                        format: int32
-                        type: integer
                       progressTTLSeconds:
                         description: ProgressTTLSeconds is how long in-progress job
                           state is retained before being considered stale.
                         format: int64
-                        type: integer
-                      recoveryMaxConcurrency:
-                        description: RecoveryMaxConcurrency is the maximum concurrency
-                          for recovering in-progress jobs after restart.
-                        format: int32
                         type: integer
                     type: object
                   globalInferenceGateway:
