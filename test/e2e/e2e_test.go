@@ -20,6 +20,7 @@ func TestE2E(t *testing.T) {
 		t.Run("ProcessorReplicasUpdate", testProcessorReplicasUpdate)
 		t.Run("ConfigChangeRollout", testConfigChangeRollout)
 		t.Run("ResourcesUpdate", testResourcesUpdate)
+		t.Run("ProcessorConcurrencyUpdate", testProcessorConcurrencyUpdate)
 	})
 }
 
@@ -52,17 +53,17 @@ func testStatusConditions(t *testing.T) {
 func testOrphanCleanup(t *testing.T) {
 	dashboardCM := testCRName + "-batch-gateway-dashboards"
 
-	kubectlPatch(t, "llmbatchgateway", testCRName, testNamespace,
+	kubectlPatch(t, llmBatchGatewayKind, testCRName, testNamespace,
 		`{"spec":{"grafana":{"enabled":true}}}`)
 	t.Cleanup(func() {
-		kubectlPatch(t, "llmbatchgateway", testCRName, testNamespace,
+		kubectlPatch(t, llmBatchGatewayKind, testCRName, testNamespace,
 			`{"spec":{"grafana":{"enabled":false}}}`)
 		waitForResourceGone(t, "configmap", dashboardCM, testNamespace, 60*time.Second)
 	})
 
 	waitForResourceExists(t, "configmap", dashboardCM, testNamespace, 60*time.Second)
 
-	kubectlPatch(t, "llmbatchgateway", testCRName, testNamespace,
+	kubectlPatch(t, llmBatchGatewayKind, testCRName, testNamespace,
 		`{"spec":{"grafana":{"enabled":false}}}`)
 
 	waitForResourceGone(t, "configmap", dashboardCM, testNamespace, 60*time.Second)
@@ -74,10 +75,10 @@ func testSpecUpdate(t *testing.T) {
 	original := getDeploymentReplicas(t, deploymentName, testNamespace)
 	target := original + 1
 
-	kubectlPatch(t, "llmbatchgateway", testCRName, testNamespace,
+	kubectlPatch(t, llmBatchGatewayKind, testCRName, testNamespace,
 		fmt.Sprintf(`{"spec":{"apiServer":{"replicas":%d}}}`, target))
 	t.Cleanup(func() {
-		kubectlPatch(t, "llmbatchgateway", testCRName, testNamespace,
+		kubectlPatch(t, llmBatchGatewayKind, testCRName, testNamespace,
 			fmt.Sprintf(`{"spec":{"apiServer":{"replicas":%d}}}`, original))
 	})
 
@@ -97,10 +98,10 @@ func testProcessorReplicasUpdate(t *testing.T) {
 	original := getDeploymentReplicas(t, deploymentName, testNamespace)
 	target := original + 1
 
-	kubectlPatch(t, "llmbatchgateway", testCRName, testNamespace,
+	kubectlPatch(t, llmBatchGatewayKind, testCRName, testNamespace,
 		fmt.Sprintf(`{"spec":{"processor":{"replicas":%d}}}`, target))
 	t.Cleanup(func() {
-		kubectlPatch(t, "llmbatchgateway", testCRName, testNamespace,
+		kubectlPatch(t, llmBatchGatewayKind, testCRName, testNamespace,
 			fmt.Sprintf(`{"spec":{"processor":{"replicas":%d}}}`, original))
 	})
 
@@ -144,13 +145,34 @@ func testConfigChangeRollout(t *testing.T) {
 			configMapName := findConfigMapByComponent(t, testNamespace, testCRName, tc.name)
 			checksumBefore := getDeploymentPodAnnotation(t, deploymentName, testNamespace, "checksum/config")
 
-			kubectlPatch(t, "llmbatchgateway", testCRName, testNamespace, tc.patch)
+			kubectlPatch(t, llmBatchGatewayKind, testCRName, testNamespace, tc.patch)
 
 			deadline := time.Now().Add(60 * time.Second)
 			for time.Now().Before(deadline) {
 				// Verify the ConfigMap data contains the expected value.
 				cmData := getConfigMapData(t, configMapName, testNamespace)
 				if !strings.Contains(cmData, tc.cmSubstr) {
+					time.Sleep(pollInterval)
+					continue
+				}
+
+				// Verify the Deployment pod template was updated.
+				checksumAfter := getDeploymentPodAnnotation(t, deploymentName, testNamespace, "checksum/config")
+				if checksumAfter != checksumBefore {
+					return
+				}
+				time.Sleep(pollInterval)
+			}
+			t.Fatalf("deployment %s or configmap %s did not update after config change", deploymentName, configMapName)
+		})
+	}
+}
+
+func testResourcesUpdate(t *testing.T) {
+	components := []struct {
+		name      string
+		specField string
+	}{
 		{name: "apiserver", specField: "apiServer"},
 		{name: "processor", specField: "processor"},
 	}
@@ -160,8 +182,8 @@ func testConfigChangeRollout(t *testing.T) {
 			t.Cleanup(snapshotCRSpec(t, testCRName, testNamespace))
 			deploymentName := findDeploymentByComponent(t, testNamespace, testCRName, tc.name)
 
-			kubectlPatch(t, "llmbatchgateway", testCRName, testNamespace,
-				`{"spec":{"`+tc.specField+`":{"resources":{"requests":{"cpu":"111m","memory":"99Mi"}}}}}`)
+			kubectlPatch(t, llmBatchGatewayKind, testCRName, testNamespace,
+				`{"spec":{"` +tc.specField+`":{"resources":{"requests":{"cpu":"111m","memory":"99Mi"}}}}}`)
 
 			deadline := time.Now().Add(60 * time.Second)
 			for time.Now().Before(deadline) {
@@ -177,3 +199,76 @@ func testConfigChangeRollout(t *testing.T) {
 	}
 }
 
+// testProcessorConcurrencyUpdate verifies that changes to the processor
+// concurrency config (including AIMD settings) are reconciled into the
+// processor ConfigMap and trigger a pod-template rollout.
+func testProcessorConcurrencyUpdate(t *testing.T) {
+	cases := []struct {
+		name     string
+		patch    string
+		cmSubstr string
+	}{
+		{
+			name:     "global concurrency",
+			patch:    `{"spec":{"processor":{"config":{"concurrency":{"global":42}}}}}`,
+			cmSubstr: "global: 42",
+		},
+		{
+			name:     "per-endpoint concurrency",
+			patch:    `{"spec":{"processor":{"config":{"concurrency":{"perEndpoint":7}}}}}`,
+			cmSubstr: "per_endpoint: 7",
+		},
+		{
+			name:     "recovery concurrency",
+			patch:    `{"spec":{"processor":{"config":{"concurrency":{"recovery":3}}}}}`,
+			cmSubstr: "recovery: 3",
+		},
+		{
+			name:     "aimd backoff factor",
+			patch:    `{"spec":{"processor":{"config":{"concurrency":{"aimd":{"backoffFactor":"0.3"}}}}}}`,
+			cmSubstr: "backoff_factor: 0.3",
+		},
+		{
+			name:     "aimd min",
+			patch:    `{"spec":{"processor":{"config":{"concurrency":{"aimd":{"min":2}}}}}}`,
+			cmSubstr: "min: 2",
+		},
+		{
+			name:     "aimd additive increase",
+			patch:    `{"spec":{"processor":{"config":{"concurrency":{"aimd":{"additiveIncrease":3}}}}}}`,
+			cmSubstr: "additive_increase: 3",
+		},
+		{
+			name:     "aimd disabled",
+			patch:    `{"spec":{"processor":{"config":{"concurrency":{"aimd":{"enabled":false}}}}}}`,
+			cmSubstr: "enabled: false",
+		},
+	}
+
+	deploymentName := findDeploymentByComponent(t, testNamespace, testCRName, "processor")
+	configMapName := findConfigMapByComponent(t, testNamespace, testCRName, "processor")
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Cleanup(snapshotCRSpec(t, testCRName, testNamespace))
+			checksumBefore := getDeploymentPodAnnotation(t, deploymentName, testNamespace, "checksum/config")
+
+			kubectlPatch(t, llmBatchGatewayKind, testCRName, testNamespace, tc.patch)
+
+			deadline := time.Now().Add(60 * time.Second)
+			for time.Now().Before(deadline) {
+				cmData := getConfigMapData(t, configMapName, testNamespace)
+				if !strings.Contains(cmData, tc.cmSubstr) {
+					time.Sleep(pollInterval)
+					continue
+				}
+				checksumAfter := getDeploymentPodAnnotation(t, deploymentName, testNamespace, "checksum/config")
+				if checksumAfter != checksumBefore {
+					return
+				}
+				time.Sleep(pollInterval)
+			}
+			t.Fatalf("processor configmap did not contain %q or deployment did not roll out", tc.cmSubstr)
+		})
+	}
+}

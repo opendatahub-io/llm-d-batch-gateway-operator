@@ -11,7 +11,10 @@ import (
 	"time"
 )
 
-const pollInterval = 2 * time.Second
+const (
+	pollInterval       = 2 * time.Second
+	llmBatchGatewayKind = "llmbatchgateway"
+)
 
 func getEnvOrDefault(key, def string) string {
 	if v := os.Getenv(key); v != "" {
@@ -115,7 +118,7 @@ func waitForResourceGone(t *testing.T, resource, name, namespace string, timeout
 
 func getCRConditions(t *testing.T, crName, namespace string) []map[string]any {
 	t.Helper()
-	obj := kubectlGetJSON(t, "llmbatchgateway", crName, namespace)
+	obj := kubectlGetJSON(t, llmBatchGatewayKind, crName, namespace)
 
 	status, ok := obj["status"].(map[string]any)
 	if !ok {
