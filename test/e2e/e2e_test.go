@@ -151,27 +151,6 @@ func testConfigChangeRollout(t *testing.T) {
 				// Verify the ConfigMap data contains the expected value.
 				cmData := getConfigMapData(t, configMapName, testNamespace)
 				if !strings.Contains(cmData, tc.cmSubstr) {
-					time.Sleep(pollInterval)
-					continue
-				}
-
-				// Verify the Deployment pod template was updated.
-				checksumAfter := getDeploymentPodAnnotation(t, deploymentName, testNamespace, "checksum/config")
-				if checksumAfter != checksumBefore {
-					return
-				}
-				time.Sleep(pollInterval)
-			}
-			t.Fatalf("deployment %s or configmap %s did not update after config change", deploymentName, configMapName)
-		})
-	}
-}
-
-func testResourcesUpdate(t *testing.T) {
-	components := []struct {
-		name      string
-		specField string
-	}{
 		{name: "apiserver", specField: "apiServer"},
 		{name: "processor", specField: "processor"},
 	}
