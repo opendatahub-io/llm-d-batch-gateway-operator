@@ -10,7 +10,7 @@ KIND_CLUSTER_NAME="${KIND_CLUSTER_NAME:-batch-gateway-dev}"
 NAMESPACE="${NAMESPACE:-default}"
 # Operator namespace, must match config/default/kustomization.yaml's `namespace:` field.
 OPERATOR_NAMESPACE="${OPERATOR_NAMESPACE:-llm-d-batch-gateway-operator-system}"
-OPERATOR_IMG="${OPERATOR_IMG:-localhost/batch-gateway-operator:dev}"
+OPERATOR_IMG="${OPERATOR_IMG:-localhost/llm-d-batch-gateway-operator:dev}"
 
 POSTGRESQL_PASSWORD="${POSTGRESQL_PASSWORD:-postgres}"
 MINIO_ACCESS_KEY="${MINIO_ACCESS_KEY:-minioadmin}"
