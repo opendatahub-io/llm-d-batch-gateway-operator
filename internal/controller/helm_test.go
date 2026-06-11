@@ -212,7 +212,8 @@ func TestSpecToHelmValues(t *testing.T) {
 	t.Run("gc config", func(t *testing.T) {
 		gc := vals["gc"].(map[string]interface{})
 		config := gc["config"].(map[string]interface{})
-		if got := config["interval"]; got != "30m" {
+		collector := config["collector"].(map[string]interface{})
+		if got := collector["interval"]; got != "30m" {
 			t.Errorf("interval = %v, want %q", got, "30m")
 		}
 	})
@@ -445,8 +446,7 @@ func TestSpecToHelmValues_Logging(t *testing.T) {
 
 	t.Run("apiserver logging verbosity", func(t *testing.T) {
 		apiserver := vals["apiserver"].(map[string]interface{})
-		config := apiserver["config"].(map[string]interface{})
-		logging := config["logging"].(map[string]interface{})
+		logging := apiserver["logging"].(map[string]interface{})
 		if got := logging["verbosity"]; got != int64(5) {
 			t.Errorf("apiserver logging.verbosity = %v, want 5", got)
 		}
@@ -454,8 +454,7 @@ func TestSpecToHelmValues_Logging(t *testing.T) {
 
 	t.Run("processor logging verbosity", func(t *testing.T) {
 		processor := vals["processor"].(map[string]interface{})
-		config := processor["config"].(map[string]interface{})
-		logging := config["logging"].(map[string]interface{})
+		logging := processor["logging"].(map[string]interface{})
 		if got := logging["verbosity"]; got != int64(3) {
 			t.Errorf("processor logging.verbosity = %v, want 3", got)
 		}
@@ -463,8 +462,7 @@ func TestSpecToHelmValues_Logging(t *testing.T) {
 
 	t.Run("gc logging verbosity", func(t *testing.T) {
 		gc := vals["gc"].(map[string]interface{})
-		config := gc["config"].(map[string]interface{})
-		logging := config["logging"].(map[string]interface{})
+		logging := gc["logging"].(map[string]interface{})
 		if got := logging["verbosity"]; got != int64(4) {
 			t.Errorf("gc logging.verbosity = %v, want 4", got)
 		}
@@ -771,7 +769,8 @@ func TestSpecToHelmValues_GCConfig(t *testing.T) {
 	if got := config["dryRun"]; got != true {
 		t.Errorf("dryRun = %v, want true", got)
 	}
-	if got := config["maxConcurrency"]; got != int64(10) {
+	collector := config["collector"].(map[string]interface{})
+	if got := collector["maxConcurrency"]; got != int64(10) {
 		t.Errorf("maxConcurrency = %v, want 10", got)
 	}
 }
