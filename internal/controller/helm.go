@@ -461,14 +461,20 @@ func mergeProcessorConfig(m map[string]interface{}, cfg *batchv1alpha1.Processor
 	if cfg.NumWorkers != 0 {
 		m["numWorkers"] = int64(cfg.NumWorkers)
 	}
-	if cfg.GlobalConcurrency != 0 {
-		m["globalConcurrency"] = int64(cfg.GlobalConcurrency)
-	}
-	if cfg.PerModelMaxConcurrency != 0 {
-		m["perModelMaxConcurrency"] = int64(cfg.PerModelMaxConcurrency)
-	}
-	if cfg.RecoveryMaxConcurrency != 0 {
-		m["recoveryMaxConcurrency"] = int64(cfg.RecoveryMaxConcurrency)
+	if cfg.Concurrency != nil {
+		concurrency := map[string]interface{}{}
+		if cfg.Concurrency.Global != 0 {
+			concurrency["global"] = int64(cfg.Concurrency.Global)
+		}
+		if cfg.Concurrency.PerEndpoint != 0 {
+			concurrency["perEndpoint"] = int64(cfg.Concurrency.PerEndpoint)
+		}
+		if cfg.Concurrency.Recovery != 0 {
+			concurrency["recovery"] = int64(cfg.Concurrency.Recovery)
+		}
+		if len(concurrency) > 0 {
+			m["concurrency"] = concurrency
+		}
 	}
 	setIfNotEmpty(m, "inferenceObjective", cfg.InferenceObjective)
 	if cfg.DefaultOutputExpirationSeconds != 0 {

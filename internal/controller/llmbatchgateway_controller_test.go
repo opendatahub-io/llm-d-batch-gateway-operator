@@ -9,8 +9,8 @@ import (
 
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/tools/record"
 	"k8s.io/utils/ptr"
@@ -574,7 +574,7 @@ func TestReconcile(t *testing.T) {
 			t.Fatalf("second Reconcile() error: %v", err)
 		}
 
-		assertDeploymentReplicas(t, ctx, gw, "processor", 5)
+		assertDeploymentReplicas(ctx, t, gw, "processor", 5)
 	})
 
 	t.Run("updates apiserver resources on spec change", func(t *testing.T) {
@@ -613,7 +613,7 @@ func TestReconcile(t *testing.T) {
 			t.Fatalf("second Reconcile() error: %v", err)
 		}
 
-		d := findOwnedDeployment(t, ctx, gw, "apiserver")
+		d := findOwnedDeployment(ctx, t, gw, "apiserver")
 		containers := d.Spec.Template.Spec.Containers
 		if len(containers) == 0 {
 			t.Fatal("apiserver deployment has no containers")
@@ -641,7 +641,7 @@ func TestReconcile(t *testing.T) {
 
 		checksumsBefore := map[string]string{}
 		for _, component := range []string{"apiserver", "processor", "gc"} {
-			d := findOwnedDeployment(t, ctx, gw, component)
+			d := findOwnedDeployment(ctx, t, gw, component)
 			checksumsBefore[component] = d.Spec.Template.Annotations["checksum/config"]
 		}
 
@@ -659,10 +659,10 @@ func TestReconcile(t *testing.T) {
 		}
 
 		for _, component := range []string{"apiserver", "processor", "gc"} {
-			cm := getOwnedConfigMap(t, ctx, gw, component)
+			cm := getOwnedConfigMap(ctx, t, gw, component)
 			assertConfigMapContains(t, cm, `type: "redis"`)
 
-			d := findOwnedDeployment(t, ctx, gw, component)
+			d := findOwnedDeployment(ctx, t, gw, component)
 			after := d.Spec.Template.Annotations["checksum/config"]
 			if after == checksumsBefore[component] {
 				t.Errorf("%s deployment pod template not updated after dbBackend change", component)
@@ -684,7 +684,7 @@ func TestReconcile(t *testing.T) {
 			t.Fatalf("first Reconcile() error: %v", err)
 		}
 
-		apiBefore := findOwnedDeployment(t, ctx, gw, "apiserver")
+		apiBefore := findOwnedDeployment(ctx, t, gw, "apiserver")
 		checksumBefore := apiBefore.Spec.Template.Annotations["checksum/config"]
 
 		if err := k8sClient.Get(ctx, nn, gw); err != nil {
@@ -705,13 +705,13 @@ func TestReconcile(t *testing.T) {
 			t.Fatalf("second Reconcile() error: %v", err)
 		}
 
-		cm := getOwnedConfigMap(t, ctx, gw, "apiserver")
+		cm := getOwnedConfigMap(ctx, t, gw, "apiserver")
 		assertConfigMapContains(t, cm, `port: "9090"`)
 		assertConfigMapContains(t, cm, "read_timeout_seconds: 120")
 		assertConfigMapContains(t, cm, "write_timeout_seconds: 180")
 		assertConfigMapContains(t, cm, "enable_pprof: true")
 
-		apiAfter := findOwnedDeployment(t, ctx, gw, "apiserver")
+		apiAfter := findOwnedDeployment(ctx, t, gw, "apiserver")
 		checksumAfter := apiAfter.Spec.Template.Annotations["checksum/config"]
 		if checksumAfter == checksumBefore {
 			t.Error("apiserver deployment pod template not updated after config change")
@@ -743,16 +743,18 @@ func TestReconcile(t *testing.T) {
 			t.Fatalf("first Reconcile() error: %v", err)
 		}
 
-		procBefore := findOwnedDeployment(t, ctx, gw, "processor")
+		procBefore := findOwnedDeployment(ctx, t, gw, "processor")
 		checksumBefore := procBefore.Spec.Template.Annotations["checksum/config"]
 
 		if err := k8sClient.Get(ctx, nn, gw); err != nil {
 			t.Fatalf("getting CR for update: %v", err)
 		}
 		gw.Spec.Processor.Config = &batchv1alpha1.ProcessorConfigSpec{
-			NumWorkers:                     50,
-			GlobalConcurrency:              200,
-			PerModelMaxConcurrency:         25,
+			NumWorkers: 50,
+			Concurrency: &batchv1alpha1.ConcurrencyConfig{
+				Global:      200,
+				PerEndpoint: 25,
+			},
 			DefaultOutputExpirationSeconds: 7200,
 			EnablePprof:                    true,
 		}
@@ -765,14 +767,14 @@ func TestReconcile(t *testing.T) {
 			t.Fatalf("second Reconcile() error: %v", err)
 		}
 
-		cm := getOwnedConfigMap(t, ctx, gw, "processor")
+		cm := getOwnedConfigMap(ctx, t, gw, "processor")
 		assertConfigMapContains(t, cm, "num_workers: 50")
 		assertConfigMapContains(t, cm, "global: 200")
 		assertConfigMapContains(t, cm, "per_endpoint: 25")
 		assertConfigMapContains(t, cm, "default_output_expiration_seconds: 7200")
 		assertConfigMapContains(t, cm, "enable_pprof: true")
 
-		procAfter := findOwnedDeployment(t, ctx, gw, "processor")
+		procAfter := findOwnedDeployment(ctx, t, gw, "processor")
 		checksumAfter := procAfter.Spec.Template.Annotations["checksum/config"]
 		if checksumAfter == checksumBefore {
 			t.Error("processor deployment pod template not updated after config change")
@@ -793,7 +795,7 @@ func TestReconcile(t *testing.T) {
 			t.Fatalf("first Reconcile() error: %v", err)
 		}
 
-		gcBefore := findOwnedDeployment(t, ctx, gw, "gc")
+		gcBefore := findOwnedDeployment(ctx, t, gw, "gc")
 		checksumBefore := gcBefore.Spec.Template.Annotations["checksum/config"]
 
 		if err := k8sClient.Get(ctx, nn, gw); err != nil {
@@ -813,12 +815,12 @@ func TestReconcile(t *testing.T) {
 			t.Fatalf("second Reconcile() error: %v", err)
 		}
 
-		cm := getOwnedConfigMap(t, ctx, gw, "gc")
+		cm := getOwnedConfigMap(ctx, t, gw, "gc")
 		assertConfigMapContains(t, cm, `interval: "1h"`)
 		assertConfigMapContains(t, cm, "dry_run: true")
 		assertConfigMapContains(t, cm, "max_concurrency: 10")
 
-		gcAfter := findOwnedDeployment(t, ctx, gw, "gc")
+		gcAfter := findOwnedDeployment(ctx, t, gw, "gc")
 		checksumAfter := gcAfter.Spec.Template.Annotations["checksum/config"]
 		if checksumAfter == checksumBefore {
 			t.Error("gc deployment pod template not updated after config change")
@@ -967,7 +969,7 @@ func TestReconcileTimeout(t *testing.T) {
 
 // getOwnedConfigMap returns the ConfigMap for the given component that is
 // owned by gw. ConfigMap names follow the pattern <name>-batch-gateway-<component>-config.
-func getOwnedConfigMap(t *testing.T, ctx context.Context, gw *batchv1alpha1.LLMBatchGateway, component string) *corev1.ConfigMap {
+func getOwnedConfigMap(ctx context.Context, t *testing.T, gw *batchv1alpha1.LLMBatchGateway, component string) *corev1.ConfigMap {
 	t.Helper()
 	cmName := gw.Name + "-batch-gateway-" + component + "-config"
 	var cm corev1.ConfigMap
@@ -992,7 +994,7 @@ func assertConfigMapContains(t *testing.T, cm *corev1.ConfigMap, want string) {
 
 // findOwnedDeployment returns the Deployment with the given component label
 // that is owned by gw. It fails the test if no such Deployment is found.
-func findOwnedDeployment(t *testing.T, ctx context.Context, gw *batchv1alpha1.LLMBatchGateway, component string) *appsv1.Deployment {
+func findOwnedDeployment(ctx context.Context, t *testing.T, gw *batchv1alpha1.LLMBatchGateway, component string) *appsv1.Deployment {
 	t.Helper()
 	var deployList appsv1.DeploymentList
 	if err := k8sClient.List(ctx, &deployList); err != nil {
@@ -1013,9 +1015,9 @@ func findOwnedDeployment(t *testing.T, ctx context.Context, gw *batchv1alpha1.LL
 
 // assertDeploymentReplicas verifies that the Deployment for the given component
 // has the expected replica count.
-func assertDeploymentReplicas(t *testing.T, ctx context.Context, gw *batchv1alpha1.LLMBatchGateway, component string, want int32) {
+func assertDeploymentReplicas(ctx context.Context, t *testing.T, gw *batchv1alpha1.LLMBatchGateway, component string, want int32) {
 	t.Helper()
-	d := findOwnedDeployment(t, ctx, gw, component)
+	d := findOwnedDeployment(ctx, t, gw, component)
 	if d.Spec.Replicas == nil || *d.Spec.Replicas != want {
 		got := int32(0)
 		if d.Spec.Replicas != nil {
