@@ -20,7 +20,7 @@ on:
       - 'Makefile'
 
 env:
-  OPERATOR_IMG: "localhost/batch-gateway-operator:ci"
+  OPERATOR_IMG: "localhost/llm-d-batch-gateway-operator:ci"
   KIND_CLUSTER_NAME: "batch-gateway-ci"
 
 jobs:
@@ -29,11 +29,9 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
-      - uses: actions/checkout@v4
-        with:
-          submodules: true
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
 
-      - uses: actions/setup-go@v5
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
         with:
           go-version-file: go.mod
 
@@ -41,7 +39,7 @@ jobs:
         run: go install sigs.k8s.io/kind@latest
 
       - name: Install Helm
-        uses: azure/setup-helm@v4
+        uses: azure/setup-helm@1a275c3b69536ee54be43f2070a358922e12c8d4 # v4
 
       - name: Deploy dev environment
         run: make dev-deploy

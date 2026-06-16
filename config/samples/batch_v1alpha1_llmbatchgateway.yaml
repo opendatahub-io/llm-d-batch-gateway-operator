@@ -16,17 +16,16 @@ spec:
     s3:
       region: us-east-1
       endpoint: https://s3.example.com
+  # Component images are NOT set here. They are pinned by the operator (sourced
+  # from params.env), so the platform controls which images run.
   apiServer:
     replicas: 1
-    image: ghcr.io/llm-d-incubation/batch-gateway-apiserver:latest
   processor:
     replicas: 1
-    image: ghcr.io/llm-d-incubation/batch-gateway-processor:latest
     globalInferenceGateway:
       url: http://inference-gateway.default.svc:8000
       requestTimeout: 5m
   gc:
-    image: ghcr.io/llm-d-incubation/batch-gateway-gc:latest
     interval: 30m
 ---
 # ReferenceGrant required for cross-namespace secretRef.

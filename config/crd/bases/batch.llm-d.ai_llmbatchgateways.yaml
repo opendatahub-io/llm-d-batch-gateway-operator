@@ -146,10 +146,14 @@ spec:
                         format: int32
                         type: integer
                     type: object
-                  image:
-                    description: Image is the container image for the API server (e.g.
-                      "ghcr.io/org/apiserver:v1.2.3").
-                    maxLength: 1024
+                  imagePullPolicy:
+                    description: |-
+                      ImagePullPolicy overrides the image pull policy for the API server container.
+                      Useful for development workflows where the image is loaded directly into the cluster node.
+                    enum:
+                    - Always
+                    - Never
+                    - IfNotPresent
                     type: string
                   replicas:
                     default: 1
@@ -219,8 +223,6 @@ spec:
                           More info: https://kubernetes.io/docs/concepts/configuration/manage-resources-containers/
                         type: object
                     type: object
-                required:
-                - image
                 type: object
               dbBackend:
                 default: postgresql
@@ -291,6 +293,7 @@ spec:
                         description: Endpoint overrides the S3 endpoint URL for non-AWS
                           providers (e.g. MinIO).
                         maxLength: 2048
+                        pattern: ^https?://.+$
                         type: string
                       prefix:
                         description: Prefix is an optional key prefix applied to all
@@ -337,17 +340,20 @@ spec:
                         format: int32
                         type: integer
                     type: object
-                  image:
-                    description: Image is the container image for the GC (e.g. "ghcr.io/org/batch-gc:v1.2.3").
-                    maxLength: 1024
+                  imagePullPolicy:
+                    description: |-
+                      ImagePullPolicy overrides the image pull policy for the GC container.
+                      Useful for development workflows where the image is loaded directly into the cluster node.
+                    enum:
+                    - Always
+                    - Never
+                    - IfNotPresent
                     type: string
                   interval:
                     default: 30m
                     description: Interval is how often the GC runs (e.g. "30m").
                     pattern: ^([0-9]+(\.[0-9]+)?(ms|s|m|h))+$
                     type: string
-                required:
-                - image
                 type: object
               grafana:
                 description: Grafana enables the bundled Grafana dashboard ConfigMap.
@@ -414,6 +420,7 @@ spec:
                     description: Endpoint is the OTLP gRPC or HTTP endpoint (e.g.
                       "http://collector:4317").
                     maxLength: 2048
+                    pattern: ^https?://.+$
                     type: string
                   insecure:
                     description: Insecure disables TLS for the OTLP connection.
@@ -440,6 +447,62 @@ spec:
                   config:
                     description: Config holds fine-grained processor configuration.
                     properties:
+                      concurrency:
+                        description: Concurrency groups all dispatch-rate and concurrency
+                          control knobs.
+                        properties:
+                          aimd:
+                            description: AIMD holds adaptive concurrency control parameters.
+                            properties:
+                              additiveIncrease:
+                                description: |-
+                                  AdditiveIncrease is the number of concurrency slots added after a full
+                                  window of consecutive successes per endpoint.
+                                format: int32
+                                minimum: 1
+                                type: integer
+                              backoffFactor:
+                                description: |-
+                                  BackoffFactor is the multiplicative decrease applied to the per-endpoint
+                                  concurrency limit when the endpoint signals overload (429/5xx).
+                                  Must be a decimal in (0, 1), e.g. "0.5".
+                                maxLength: 16
+                                pattern: ^0\.[0-9]+$
+                                type: string
+                              enabled:
+                                description: |-
+                                  Enabled controls whether AIMD adaptive concurrency is active.
+                                  When false, per-endpoint concurrency is fixed at ConcurrencyConfig.PerEndpoint.
+                                type: boolean
+                              min:
+                                description: |-
+                                  Min is the floor for per-endpoint adaptive concurrency.
+                                  AIMD will never reduce a single endpoint's effective limit below this value.
+                                format: int32
+                                minimum: 1
+                                type: integer
+                            type: object
+                          global:
+                            description: |-
+                              Global limits total in-flight inference requests across all workers.
+                              Acts as a fixed ceiling — the sum of all per-endpoint concurrency is
+                              bounded by this value.
+                            format: int32
+                            minimum: 1
+                            type: integer
+                          perEndpoint:
+                            description: PerEndpoint is the initial and maximum concurrency
+                              per inference endpoint.
+                            format: int32
+                            minimum: 1
+                            type: integer
+                          recovery:
+                            description: Recovery limits concurrent job recoveries
+                              during startup.
+                            format: int32
+                            minimum: 1
+                            type: integer
+                        type: object
                       defaultOutputExpirationSeconds:
                         description: DefaultOutputExpirationSeconds is the TTL for
                           job output files.
@@ -449,11 +512,6 @@ spec:
                         description: EnablePprof enables the Go pprof profiling HTTP
                           endpoints.
                         type: boolean
-                      globalConcurrency:
-                        description: GlobalConcurrency is the maximum number of in-flight
-                          inference requests across all models.
-                        format: int32
-                        type: integer
                       inferenceObjective:
                         description: InferenceObjective specifies the scheduling objective
                           (e.g. "throughput", "latency").
@@ -473,20 +531,10 @@ spec:
                           goroutines processing jobs.
                         format: int32
                         type: integer
-                      perModelMaxConcurrency:
-                        description: PerModelMaxConcurrency is the maximum number
-                          of in-flight inference requests per model.
-                        format: int32
-                        type: integer
                       progressTTLSeconds:
                         description: ProgressTTLSeconds is how long in-progress job
                           state is retained before being considered stale.
                         format: int64
-                        type: integer
-                      recoveryMaxConcurrency:
-                        description: RecoveryMaxConcurrency is the maximum concurrency
-                          for recovering in-progress jobs after restart.
-                        format: int32
                         type: integer
                     type: object
                   globalInferenceGateway:
@@ -540,14 +588,23 @@ spec:
                         description: URL is the base URL of the inference gateway
                           (e.g. "http://gateway.svc:8000").
                         maxLength: 2048
+                        pattern: ^https?://.+$
                         type: string
                     required:
                     - url
                     type: object
-                  image:
-                    description: Image is the container image for the processor (e.g.
-                      "ghcr.io/org/processor:v1.2.3").
-                    maxLength: 1024
+                    x-kubernetes-validations:
+                    - message: tlsInsecureSkipVerify is not allowed; configure trusted
+                        CA certificates instead
+                      rule: '!has(self.tlsInsecureSkipVerify) || !self.tlsInsecureSkipVerify'
+                  imagePullPolicy:
+                    description: |-
+                      ImagePullPolicy overrides the image pull policy for the processor container.
+                      Useful for development workflows where the image is loaded directly into the cluster node.
+                    enum:
+                    - Always
+                    - Never
+                    - IfNotPresent
                     type: string
                   modelGateways:
                     additionalProperties:
@@ -600,10 +657,15 @@ spec:
                           description: URL is the base URL of the inference gateway
                             (e.g. "http://gateway.svc:8000").
                           maxLength: 2048
+                          pattern: ^https?://.+$
                           type: string
                       required:
                       - url
                       type: object
+                      x-kubernetes-validations:
+                      - message: tlsInsecureSkipVerify is not allowed; configure trusted
+                          CA certificates instead
+                        rule: '!has(self.tlsInsecureSkipVerify) || !self.tlsInsecureSkipVerify'
                     description: |-
                       ModelGateways maps model names to per-model inference gateway configurations,
                       overriding GlobalInferenceGateway for those models.
@@ -676,8 +738,6 @@ spec:
                           More info: https://kubernetes.io/docs/concepts/configuration/manage-resources-containers/
                         type: object
                     type: object
-                required:
-                - image
                 type: object
               prometheusRule:
                 description: PrometheusRule configures a PrometheusRule resource with

@@ -28,12 +28,12 @@ const (
 )
 
 var operatorSelectorLabels = map[string]string{
-	"control-plane":          "controller-manager",
+	"control-plane":          "llm-d-batch-gateway-controller-manager",
 	"app.kubernetes.io/name": utils.OperatorName,
 }
 
 var operatorLabels = map[string]string{
-	"control-plane":                "controller-manager",
+	"control-plane":                "llm-d-batch-gateway-controller-manager",
 	"app.kubernetes.io/name":       utils.OperatorName,
 	"app.kubernetes.io/managed-by": utils.FieldOwner,
 }

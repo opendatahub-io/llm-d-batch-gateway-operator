@@ -11,7 +11,10 @@ import (
 	"time"
 )
 
-const pollInterval = 2 * time.Second
+const (
+	pollInterval       = 2 * time.Second
+	llmBatchGatewayKind = "llmbatchgateway"
+)
 
 func getEnvOrDefault(key, def string) string {
 	if v := os.Getenv(key); v != "" {
@@ -23,6 +26,26 @@ func getEnvOrDefault(key, def string) string {
 func kubectl(ctx context.Context, args ...string) ([]byte, error) {
 	cmd := exec.CommandContext(ctx, "kubectl", args...)
 	return cmd.CombinedOutput()
+}
+
+// snapshotCRSpec captures the full spec of the named LLMBatchGateway CR and
+// returns a restore function that applies it back as a merge patch. Pass the
+// returned function directly to t.Cleanup.
+func snapshotCRSpec(t *testing.T, name, namespace string) func() {
+	t.Helper()
+	obj := kubectlGetJSON(t, "llmbatchgateway", name, namespace)
+	spec, ok := obj["spec"]
+	if !ok {
+		t.Fatalf("CR %s has no spec", name)
+	}
+	b, err := json.Marshal(map[string]any{"spec": spec})
+	if err != nil {
+		t.Fatalf("marshalling spec snapshot for %s: %v", name, err)
+	}
+	snapshot := string(b)
+	return func() {
+		kubectlPatch(t, "llmbatchgateway", name, namespace, snapshot)
+	}
 }
 
 func kubectlPatch(t *testing.T, resource, name, namespace, patchJSON string) {
@@ -95,7 +118,7 @@ func waitForResourceGone(t *testing.T, resource, name, namespace string, timeout
 
 func getCRConditions(t *testing.T, crName, namespace string) []map[string]any {
 	t.Helper()
-	obj := kubectlGetJSON(t, "llmbatchgateway", crName, namespace)
+	obj := kubectlGetJSON(t, llmBatchGatewayKind, crName, namespace)
 
 	status, ok := obj["status"].(map[string]any)
 	if !ok {
@@ -145,4 +168,57 @@ func getDeploymentReplicas(t *testing.T, name, namespace string) int64 {
 		t.Fatalf("deployment %s has no spec.replicas", name)
 	}
 	return int64(replicas)
+}
+
+func findConfigMapByComponent(t *testing.T, namespace, instance, component string) string {
+	t.Helper()
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	selector := fmt.Sprintf("app.kubernetes.io/instance=%s,app.kubernetes.io/component=%s", instance, component)
+	out, err := kubectl(ctx, "get", "configmap", "-n", namespace, "-l", selector, "-o", "jsonpath={.items[0].metadata.name}")
+	if err != nil {
+		t.Fatalf("finding configmap with component=%s: %v\n%s", component, err, out)
+	}
+	name := string(out)
+	if name == "" {
+		t.Fatalf("no configmap found with labels instance=%s,component=%s", instance, component)
+	}
+	return name
+}
+
+func getConfigMapData(t *testing.T, name, namespace string) string {
+	t.Helper()
+	obj := kubectlGetJSON(t, "configmap", name, namespace)
+	data, _ := obj["data"].(map[string]any)
+	configYAML, _ := data["config.yaml"].(string)
+	return configYAML
+}
+
+func getDeploymentPodAnnotation(t *testing.T, name, namespace, annotation string) string {
+	t.Helper()
+	obj := kubectlGetJSON(t, "deployment", name, namespace)
+
+	spec, _ := obj["spec"].(map[string]any)
+	template, _ := spec["template"].(map[string]any)
+	metadata, _ := template["metadata"].(map[string]any)
+	annotations, _ := metadata["annotations"].(map[string]any)
+	val, _ := annotations[annotation].(string)
+	return val
+}
+
+func getContainerResources(t *testing.T, deploymentName, namespace string) map[string]any {
+	t.Helper()
+	obj := kubectlGetJSON(t, "deployment", deploymentName, namespace)
+
+	spec, _ := obj["spec"].(map[string]any)
+	template, _ := spec["template"].(map[string]any)
+	podSpec, _ := template["spec"].(map[string]any)
+	containers, _ := podSpec["containers"].([]any)
+	if len(containers) == 0 {
+		t.Fatalf("deployment %s has no containers", deploymentName)
+	}
+	container, _ := containers[0].(map[string]any)
+	resources, _ := container["resources"].(map[string]any)
+	return resources
 }

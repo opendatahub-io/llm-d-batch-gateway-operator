@@ -139,7 +139,8 @@ func (r *LLMBatchGatewayReconciler) reconcile(ctx context.Context, req ctrl.Requ
 	}
 
 	if err := validateSpec(&gw); err != nil {
-		for _, condType := range []string{conditionReady, conditionAPIServerAvailable, conditionProcessorAvailable} {
+		gw.Status.ObservedGeneration = gw.Generation
+		for _, condType := range []string{conditionReady, conditionAPIServerAvailable, conditionProcessorAvailable, conditionGCAvailable} {
 			meta.SetStatusCondition(&gw.Status.Conditions, metav1.Condition{
 				Type:               condType,
 				Status:             metav1.ConditionFalse,
@@ -151,6 +152,7 @@ func (r *LLMBatchGatewayReconciler) reconcile(ctx context.Context, req ctrl.Requ
 		r.Recorder.Eventf(&gw, corev1.EventTypeWarning, "ValidationFailed", "Spec validation failed: %s", err)
 		if statusErr := NewStatusPatch(gw.ResourceVersion).
 			Add(conditionsStatusField, gw.Status.Conditions).
+			Add(observedGenerationStatusField, gw.Status.ObservedGeneration).
 			Apply(ctx, r.Client, &gw); statusErr != nil {
 			return ctrl.Result{}, fmt.Errorf("patching status after validation failure: %w", statusErr)
 		}
@@ -170,6 +172,7 @@ func (r *LLMBatchGatewayReconciler) reconcile(ctx context.Context, req ctrl.Requ
 			reason, permanent = reasonSecretRefImmutable, true
 		}
 		if permanent {
+			gw.Status.ObservedGeneration = gw.Generation
 			meta.SetStatusCondition(&gw.Status.Conditions, metav1.Condition{
 				Type:               conditionReady,
 				Status:             metav1.ConditionFalse,
@@ -180,6 +183,7 @@ func (r *LLMBatchGatewayReconciler) reconcile(ctx context.Context, req ctrl.Requ
 			r.Recorder.Eventf(&gw, corev1.EventTypeWarning, reason, "%s", err)
 			if statusErr := NewStatusPatch(gw.ResourceVersion).
 				Add(conditionsStatusField, gw.Status.Conditions).
+				Add(observedGenerationStatusField, gw.Status.ObservedGeneration).
 				Apply(ctx, r.Client, &gw); statusErr != nil {
 				return ctrl.Result{}, fmt.Errorf("patching status after %s: %w", reason, statusErr)
 			}
@@ -200,6 +204,7 @@ func (r *LLMBatchGatewayReconciler) reconcile(ctx context.Context, req ctrl.Requ
 
 	objects, err := r.HelmRenderer.RenderChart(&gw, localSecretName)
 	if err != nil {
+		gw.Status.ObservedGeneration = gw.Generation
 		meta.SetStatusCondition(&gw.Status.Conditions, metav1.Condition{
 			Type:               conditionReady,
 			Status:             metav1.ConditionFalse,
@@ -210,6 +215,7 @@ func (r *LLMBatchGatewayReconciler) reconcile(ctx context.Context, req ctrl.Requ
 		r.Recorder.Eventf(&gw, corev1.EventTypeWarning, "RenderFailed", "Helm chart render failed: %s", err)
 		if statusErr := NewStatusPatch(gw.ResourceVersion).
 			Add(conditionsStatusField, gw.Status.Conditions).
+			Add(observedGenerationStatusField, gw.Status.ObservedGeneration).
 			Apply(ctx, r.Client, &gw); statusErr != nil {
 			return ctrl.Result{}, fmt.Errorf("rendering chart: %w; also failed to patch status: %w", err, statusErr)
 		}
@@ -417,6 +423,10 @@ func (r *LLMBatchGatewayReconciler) SetupWithManager(mgr ctrl.Manager) error {
 		func(ctx context.Context, obj client.Object) []reconcile.Request {
 			var gwList batchv1alpha1.LLMBatchGatewayList
 			if err := r.List(ctx, &gwList); err != nil {
+				log.FromContext(ctx).Error(err, "listing LLMBatchGateways for Secret watch", "secret", types.NamespacedName{
+					Namespace: obj.GetNamespace(),
+					Name:      obj.GetName(),
+				})
 				return nil
 			}
 			var reqs []reconcile.Request
@@ -442,6 +452,10 @@ func (r *LLMBatchGatewayReconciler) SetupWithManager(mgr ctrl.Manager) error {
 		func(ctx context.Context, obj client.Object) []reconcile.Request {
 			var gwList batchv1alpha1.LLMBatchGatewayList
 			if err := r.List(ctx, &gwList); err != nil {
+				log.FromContext(ctx).Error(err, "listing LLMBatchGateways for ReferenceGrant watch", "referenceGrant", types.NamespacedName{
+					Namespace: obj.GetNamespace(),
+					Name:      obj.GetName(),
+				})
 				return nil
 			}
 			var reqs []reconcile.Request

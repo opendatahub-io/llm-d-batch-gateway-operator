@@ -122,6 +122,7 @@ type S3StorageSpec struct {
 
 	// Endpoint overrides the S3 endpoint URL for non-AWS providers (e.g. MinIO).
 	// +kubebuilder:validation:MaxLength=2048
+	// +kubebuilder:validation:Pattern=`^https?://.+$`
 	Endpoint string `json:"endpoint,omitempty"`
 
 	// AccessKeyID is the S3 access key ID (non-sensitive). The corresponding
@@ -179,16 +180,16 @@ type APIServerSpec struct {
 	// +kubebuilder:validation:Minimum=0
 	Replicas *int32 `json:"replicas,omitempty"`
 
-	// Image is the container image for the API server (e.g. "ghcr.io/org/apiserver:v1.2.3").
-	// +kubebuilder:validation:Required
-	// +kubebuilder:validation:MaxLength=1024
-	Image string `json:"image"`
-
 	// Resources defines CPU and memory requests/limits for the API server container.
 	Resources *corev1.ResourceRequirements `json:"resources,omitempty"`
 
 	// Config holds fine-grained API server configuration.
 	Config *APIServerConfigSpec `json:"config,omitempty"`
+
+	// ImagePullPolicy overrides the image pull policy for the API server container.
+	// Useful for development workflows where the image is loaded directly into the cluster node.
+	// +kubebuilder:validation:Enum=Always;Never;IfNotPresent
+	ImagePullPolicy corev1.PullPolicy `json:"imagePullPolicy,omitempty"`
 }
 
 // APIServerConfigSpec holds fine-grained configuration for the API server process.
@@ -263,13 +264,13 @@ type ProcessorSpec struct {
 	// +kubebuilder:validation:Minimum=0
 	Replicas *int32 `json:"replicas,omitempty"`
 
-	// Image is the container image for the processor (e.g. "ghcr.io/org/processor:v1.2.3").
-	// +kubebuilder:validation:Required
-	// +kubebuilder:validation:MaxLength=1024
-	Image string `json:"image"`
-
 	// Resources defines CPU and memory requests/limits for the processor container.
 	Resources *corev1.ResourceRequirements `json:"resources,omitempty"`
+
+	// ImagePullPolicy overrides the image pull policy for the processor container.
+	// Useful for development workflows where the image is loaded directly into the cluster node.
+	// +kubebuilder:validation:Enum=Always;Never;IfNotPresent
+	ImagePullPolicy corev1.PullPolicy `json:"imagePullPolicy,omitempty"`
 
 	// GlobalInferenceGateway is the default inference gateway used for all models
 	// unless overridden by a ModelGateways entry.
@@ -284,10 +285,12 @@ type ProcessorSpec struct {
 }
 
 // InferenceGatewaySpec configures a connection to an inference gateway.
+// +kubebuilder:validation:XValidation:rule="!has(self.tlsInsecureSkipVerify) || !self.tlsInsecureSkipVerify",message="tlsInsecureSkipVerify is not allowed; configure trusted CA certificates instead"
 type InferenceGatewaySpec struct {
 	// URL is the base URL of the inference gateway (e.g. "http://gateway.svc:8000").
 	// +kubebuilder:validation:Required
 	// +kubebuilder:validation:MaxLength=2048
+	// +kubebuilder:validation:Pattern=`^https?://.+$`
 	URL string `json:"url"`
 
 	// RequestTimeout is the maximum time to wait for a single inference response (e.g. "5m").
@@ -324,19 +327,58 @@ type InferenceGatewaySpec struct {
 	TLSClientKeyFile string `json:"tlsClientKeyFile,omitempty"`
 }
 
+// AIMDConfig holds parameters for Additive Increase / Multiplicative Decrease
+// adaptive concurrency control per inference endpoint.
+type AIMDConfig struct {
+	// Enabled controls whether AIMD adaptive concurrency is active.
+	// When false, per-endpoint concurrency is fixed at ConcurrencyConfig.PerEndpoint.
+	Enabled *bool `json:"enabled,omitempty"`
+
+	// Min is the floor for per-endpoint adaptive concurrency.
+	// AIMD will never reduce a single endpoint's effective limit below this value.
+	// +kubebuilder:validation:Minimum=1
+	Min int32 `json:"min,omitempty"`
+
+	// BackoffFactor is the multiplicative decrease applied to the per-endpoint
+	// concurrency limit when the endpoint signals overload (429/5xx).
+	// Must be a decimal in (0, 1), e.g. "0.5".
+	// +kubebuilder:validation:Pattern=`^0\.[0-9]+$`
+	// +kubebuilder:validation:MaxLength=16
+	BackoffFactor string `json:"backoffFactor,omitempty"`
+
+	// AdditiveIncrease is the number of concurrency slots added after a full
+	// window of consecutive successes per endpoint.
+	// +kubebuilder:validation:Minimum=1
+	AdditiveIncrease int32 `json:"additiveIncrease,omitempty"`
+}
+
+// ConcurrencyConfig groups the dispatch-rate and concurrency control knobs.
+type ConcurrencyConfig struct {
+	// Global limits total in-flight inference requests across all workers.
+	// Acts as a fixed ceiling — the sum of all per-endpoint concurrency is
+	// bounded by this value.
+	// +kubebuilder:validation:Minimum=1
+	Global int32 `json:"global,omitempty"`
+
+	// PerEndpoint is the initial and maximum concurrency per inference endpoint.
+	// +kubebuilder:validation:Minimum=1
+	PerEndpoint int32 `json:"perEndpoint,omitempty"`
+
+	// Recovery limits concurrent job recoveries during startup.
+	// +kubebuilder:validation:Minimum=1
+	Recovery int32 `json:"recovery,omitempty"`
+
+	// AIMD holds adaptive concurrency control parameters.
+	AIMD *AIMDConfig `json:"aimd,omitempty"`
+}
+
 // ProcessorConfigSpec holds fine-grained configuration for the processor process.
 type ProcessorConfigSpec struct {
 	// NumWorkers is the number of concurrent worker goroutines processing jobs.
 	NumWorkers int32 `json:"numWorkers,omitempty"`
 
-	// GlobalConcurrency is the maximum number of in-flight inference requests across all models.
-	GlobalConcurrency int32 `json:"globalConcurrency,omitempty"`
-
-	// PerModelMaxConcurrency is the maximum number of in-flight inference requests per model.
-	PerModelMaxConcurrency int32 `json:"perModelMaxConcurrency,omitempty"`
-
-	// RecoveryMaxConcurrency is the maximum concurrency for recovering in-progress jobs after restart.
-	RecoveryMaxConcurrency int32 `json:"recoveryMaxConcurrency,omitempty"`
+	// Concurrency groups all dispatch-rate and concurrency control knobs.
+	Concurrency *ConcurrencyConfig `json:"concurrency,omitempty"`
 
 	// InferenceObjective specifies the scheduling objective (e.g. "throughput", "latency").
 	// +kubebuilder:validation:MaxLength=253
@@ -359,11 +401,6 @@ type ProcessorConfigSpec struct {
 
 // GCSpec configures the garbage-collector component.
 type GCSpec struct {
-	// Image is the container image for the GC (e.g. "ghcr.io/org/batch-gc:v1.2.3").
-	// +kubebuilder:validation:Required
-	// +kubebuilder:validation:MaxLength=1024
-	Image string `json:"image"`
-
 	// Interval is how often the GC runs (e.g. "30m").
 	// +kubebuilder:default="30m"
 	// +kubebuilder:validation:Pattern=`^([0-9]+(\.[0-9]+)?(ms|s|m|h))+$`
@@ -371,6 +408,11 @@ type GCSpec struct {
 
 	// Config holds fine-grained GC configuration.
 	Config *GCConfigSpec `json:"config,omitempty"`
+
+	// ImagePullPolicy overrides the image pull policy for the GC container.
+	// Useful for development workflows where the image is loaded directly into the cluster node.
+	// +kubebuilder:validation:Enum=Always;Never;IfNotPresent
+	ImagePullPolicy corev1.PullPolicy `json:"imagePullPolicy,omitempty"`
 }
 
 // GCConfigSpec holds fine-grained configuration for the garbage-collector process.
@@ -413,6 +455,7 @@ type PrometheusRuleSpec struct {
 type OTELSpec struct {
 	// Endpoint is the OTLP gRPC or HTTP endpoint (e.g. "http://collector:4317").
 	// +kubebuilder:validation:MaxLength=2048
+	// +kubebuilder:validation:Pattern=`^https?://.+$`
 	Endpoint string `json:"endpoint,omitempty"`
 
 	// Insecure disables TLS for the OTLP connection.

@@ -33,6 +33,9 @@ kubectl delete deployment,svc minio -n "${NAMESPACE}" --ignore-not-found
 step "Removing vLLM simulator..."
 kubectl delete deployment,svc vllm-sim -n "${NAMESPACE}" --ignore-not-found
 
+step "Removing NodePort services..."
+kubectl delete svc batch-gateway-apiserver-nodeport batch-gateway-processor-nodeport -n "${NAMESPACE}" --ignore-not-found
+
 step "Removing secrets..."
 kubectl delete secret batch-gateway-secrets -n "${NAMESPACE}" --ignore-not-found
 
