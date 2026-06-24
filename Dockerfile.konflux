@@ -23,7 +23,7 @@ COPY --chown=1001:0 Dockerfile prefetched-charts* /tmp/batch-gateway-chart/
 
 RUN if [ "${BUILD_TYPE}" != "CI" ]; then \
         make fetch-batch-gateway && \
-        cp -r batch-gateway/charts/batch-gateway /tmp/batch-gateway-chart; \
+        cp -r batch-gateway/charts/batch-gateway/* /tmp/batch-gateway-chart/; \
     fi
 
 RUN mkdir -p bin && \
