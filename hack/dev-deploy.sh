@@ -59,6 +59,9 @@ detect_CONTAINER_TOOL() {
 
 check_prerequisites() {
     step "Checking prerequisites..."
+    if ! command -v kustomize &>/dev/null && [ -x "${OPERATOR_DIR}/bin/kustomize" ]; then
+        export PATH="${OPERATOR_DIR}/bin:${PATH}"
+    fi
     local missing=()
     for cmd in kubectl helm kind kustomize curl; do
         command -v "$cmd" &>/dev/null || missing+=("$cmd")

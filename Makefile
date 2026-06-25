@@ -107,8 +107,8 @@ verify-manifests: manifests kustomize ## Verify that every overlay builds succes
 ## Deploy (kustomize)
 
 .PHONY: deploy
-deploy: manifests
-	cd config/default && kustomize edit set image controller=$(IMG)
+deploy: manifests kustomize
+	cd config/default && $(KUSTOMIZE) edit set image controller=$(IMG)
 	kubectl apply -k config/default
 
 .PHONY: undeploy
@@ -118,8 +118,8 @@ undeploy:
 ## Dev (Kind)
 
 .PHONY: dev-deploy
-dev-deploy: fetch-batch-gateway
-	hack/dev-deploy.sh
+dev-deploy: kustomize fetch-batch-gateway
+	PATH="$(shell pwd)/bin:$$PATH" hack/dev-deploy.sh
 
 .PHONY: dev-clean
 dev-clean:
