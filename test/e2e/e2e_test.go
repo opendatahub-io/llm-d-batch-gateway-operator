@@ -15,6 +15,10 @@ var (
 func TestE2E(t *testing.T) {
 	t.Run("Operator", func(t *testing.T) {
 		t.Run("StatusConditions", testStatusConditions)
+		t.Run("OperandPodsReady", testOperandPodsReady)
+		t.Run("ServiceReachability", testServiceReachability)
+		t.Run("ReadyFalseConformance", testReadyFalseConformance)
+		t.Run("CRDeletionCleanup", testCRDeletionCleanup)
 		t.Run("OrphanCleanup", testOrphanCleanup)
 		t.Run("SpecUpdate", testSpecUpdate)
 		t.Run("ProcessorReplicasUpdate", testProcessorReplicasUpdate)
@@ -48,6 +52,81 @@ func testStatusConditions(t *testing.T) {
 		time.Sleep(pollInterval)
 	}
 	t.Fatalf("timed out waiting for status conditions: %v", expected)
+}
+
+func testOperandPodsReady(t *testing.T) {
+	for _, component := range []string{"apiserver", "processor", "gc"} {
+		t.Run(component, func(t *testing.T) {
+			waitForComponentPodsReady(t, testNamespace, testCRName, component, 120*time.Second)
+		})
+	}
+}
+
+func testServiceReachability(t *testing.T) {
+	serviceName := findServiceByComponent(t, testNamespace, testCRName, "apiserver")
+	waitForServiceEndpointsReady(t, serviceName, testNamespace, 60*time.Second)
+
+	apiPort := getServicePortByAnyName(t, serviceName, testNamespace, "http", "https")
+	withServicePortForward(t, testNamespace, serviceName, apiPort, func(baseURL string) {
+		requireHTTPSuccess(t, baseURL+"/v1/files")
+	})
+
+	observabilityPort := getServicePortByName(t, serviceName, testNamespace, "observability")
+	withServicePortForward(t, testNamespace, serviceName, observabilityPort, func(baseURL string) {
+		requireHTTPStatus(t, baseURL+"/ready", 200)
+	})
+}
+
+func testReadyFalseConformance(t *testing.T) {
+	t.Cleanup(snapshotCRSpec(t, testCRName, testNamespace))
+	deploymentName := findDeploymentByComponent(t, testNamespace, testCRName, "apiserver")
+	originalReplicas := getDeploymentReplicas(t, deploymentName, testNamespace)
+
+	kubectlPatch(t, llmBatchGatewayKind, testCRName, testNamespace, `{"spec":{"apiServer":{"replicas":0}}}`)
+
+	waitForConditionStatus(t, testCRName, testNamespace, "APIServerAvailable", "False", 90*time.Second)
+	waitForConditionStatus(t, testCRName, testNamespace, "Ready", "False", 90*time.Second)
+
+	kubectlPatch(t, llmBatchGatewayKind, testCRName, testNamespace,
+		fmt.Sprintf(`{"spec":{"apiServer":{"replicas":%d}}}`, originalReplicas))
+
+	waitForConditionStatus(t, testCRName, testNamespace, "APIServerAvailable", "True", 120*time.Second)
+	waitForConditionStatus(t, testCRName, testNamespace, "Ready", "True", 120*time.Second)
+	waitForComponentPodsReady(t, testNamespace, testCRName, "apiserver", 120*time.Second)
+}
+
+func testCRDeletionCleanup(t *testing.T) {
+	tempCRName := fmt.Sprintf("%s-cleanup-%d", testCRName, time.Now().UnixNano())
+	selector := fmt.Sprintf("app.kubernetes.io/instance=%s", tempCRName)
+
+	cloneExistingCR(t, testCRName, testNamespace, tempCRName)
+	t.Cleanup(func() {
+		kubectlDelete(t, llmBatchGatewayKind, tempCRName, testNamespace)
+	})
+
+	cr := kubectlGetJSON(t, llmBatchGatewayKind, tempCRName, testNamespace)
+	ownerUID := getObjectUID(t, cr)
+
+	for _, tc := range []struct {
+		resource string
+		minCount int
+	}{
+		{resource: "deployment", minCount: 3},
+		{resource: "service", minCount: 1},
+		{resource: "configmap", minCount: 3},
+	} {
+		items := waitForResourceCountAtLeast(t, tc.resource, testNamespace, selector, tc.minCount, 120*time.Second)
+		for _, item := range items {
+			if !hasOwnerUID(item, ownerUID) {
+				t.Fatalf("%s for %s is not owned by %s", tc.resource, tempCRName, ownerUID)
+			}
+		}
+	}
+
+	kubectlDelete(t, llmBatchGatewayKind, tempCRName, testNamespace)
+	for _, resource := range []string{"deployment", "service", "configmap"} {
+		waitForResourcesGoneBySelector(t, resource, testNamespace, selector, 120*time.Second)
+	}
 }
 
 func testOrphanCleanup(t *testing.T) {
@@ -183,7 +262,7 @@ func testResourcesUpdate(t *testing.T) {
 			deploymentName := findDeploymentByComponent(t, testNamespace, testCRName, tc.name)
 
 			kubectlPatch(t, llmBatchGatewayKind, testCRName, testNamespace,
-				`{"spec":{"` +tc.specField+`":{"resources":{"requests":{"cpu":"111m","memory":"99Mi"}}}}}`)
+				`{"spec":{"`+tc.specField+`":{"resources":{"requests":{"cpu":"111m","memory":"99Mi"}}}}}`)
 
 			deadline := time.Now().Add(60 * time.Second)
 			for time.Now().Before(deadline) {
