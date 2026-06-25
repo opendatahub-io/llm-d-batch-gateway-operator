@@ -1,0 +1,117 @@
+name: Check Bundle Images
+
+on:
+  schedule:
+    - cron: '0 8 * * *'
+  workflow_dispatch:
+
+jobs:
+  check-images:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Install yq
+        run: |
+          sudo wget -qO /usr/local/bin/yq https://github.com/mikefarah/yq/releases/latest/download/yq_linux_amd64
+          sudo chmod +x /usr/local/bin/yq
+
+      - name: Check bundle images
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+
+          # env_name:repo_suffix
+          ENV_REPO_MAP=(
+              "RELATED_IMAGE_ODH_AI_GATEWAY_OPERATOR_IMAGE:ai-gateway-operator"
+              "RELATED_IMAGE_ODH_LLM_D_BATCH_GATEWAY_OPERATOR_IMAGE:llm-d-batch-gateway-operator"
+              "RELATED_IMAGE_ODH_LLM_D_BATCH_GATEWAY_APISERVER_IMAGE:batch-gateway"
+              "RELATED_IMAGE_ODH_LLM_D_BATCH_GATEWAY_PROCESSOR_IMAGE:batch-gateway"
+              "RELATED_IMAGE_ODH_LLM_D_BATCH_GATEWAY_GC_IMAGE:batch-gateway"
+          )
+
+          # label|repos(org:name:branch,...)|bundle_patch_url
+          BUNDLE_PATCHES=(
+              "odh|opendatahub-io:ai-gateway-operator:main,opendatahub-io:llm-d-batch-gateway-operator:main,opendatahub-io:batch-gateway:main|https://raw.githubusercontent.com/opendatahub-io/ODH-Build-Config/main/bundle/bundle-patch.yaml"
+              "rhoai-3.5-ea.2|red-hat-data-services:ai-gateway-operator:rhoai-3.5-ea.2,red-hat-data-services:llm-d-batch-gateway-operator:rhoai-3.5-ea.2,red-hat-data-services:batch-gateway:rhoai-3.5-ea.2|https://raw.githubusercontent.com/red-hat-data-services/RHOAI-Build-Config/rhoai-3.5-ea.2/bundle/bundle-patch.yaml"
+          )
+
+          get_repo_info() {
+              local suffix="$1" repos="$2"
+              local IFS=','
+              for e in $repos; do
+                  local org repo branch
+                  IFS=':' read -r org repo branch <<< "$e"
+                  if [[ "$repo" == "$suffix" ]]; then
+                      echo "${org}/${repo}:${branch}"
+                      return
+                  fi
+              done
+          }
+
+          all_ok=true
+          for entry in "${BUNDLE_PATCHES[@]}"; do
+              patch_label="" patch_repos="" patch_url=""
+              IFS='|' read -r patch_label patch_repos patch_url <<< "$entry"
+              echo ""
+              echo "=== $patch_label ==="
+              patch_content=$(curl -sL "$patch_url")
+              if [ -z "$patch_content" ]; then
+                  echo "FAIL: failed to fetch $patch_url"
+                  all_ok=false
+                  continue
+              fi
+
+              for env_map_entry in "${ENV_REPO_MAP[@]}"; do
+                  env_name="" repo_suffix=""
+                  IFS=':' read -r env_name repo_suffix <<< "$env_map_entry"
+
+                  repo_entry="" github_repo="" patch_branch=""
+                  repo_entry=$(get_repo_info "$repo_suffix" "$patch_repos")
+                  IFS=':' read -r github_repo patch_branch <<< "$repo_entry"
+
+                  image_url=$(echo "$patch_content" | yq ".patch.relatedImages[] | select(.name == \"$env_name\") | .value" 2>/dev/null || true)
+                  if [ -z "$image_url" ]; then
+                      echo "FAIL: $env_name not found"
+                      all_ok=false
+                      continue
+                  fi
+
+                  # Check image is pullable
+                  inspect_json=$(skopeo inspect --override-os linux --override-arch amd64 "docker://$image_url" 2>/dev/null || true)
+                  if [ -z "$inspect_json" ]; then
+                      echo "FAIL: $env_name=$image_url (not accessible)"
+                      all_ok=false
+                      continue
+                  fi
+
+                  # Check build time vs last commit time
+                  build_time=$(echo "$inspect_json" | jq -r '.Created[:19]' 2>/dev/null || true)
+                  last_commit_time=$(gh api "repos/$github_repo/commits/$patch_branch" --jq '.commit.committer.date[:19]' 2>/dev/null || true)
+
+                  if [ -z "$build_time" ]; then
+                      echo "FAIL: $env_name=$image_url (cannot get build time)"
+                      all_ok=false
+                      continue
+                  fi
+                  if [ -z "$last_commit_time" ]; then
+                      echo "FAIL: $env_name cannot get last commit time from $github_repo/commits/$patch_branch"
+                      all_ok=false
+                      continue
+                  fi
+                  if [[ "$build_time" < "$last_commit_time" ]]; then
+                      echo "FAIL: $env_name=$image_url (stale: built $build_time, last commit $last_commit_time in $github_repo/commits/$patch_branch)"
+                      all_ok=false
+                      continue
+                  fi
+
+                  echo "PASS: $env_name=$image_url (built $build_time)"
+              done
+          done
+
+          echo ""
+          if [ "$all_ok" = true ]; then
+              echo "All images verified."
+          else
+              echo "Some images failed verification."
+              exit 1
+          fi
