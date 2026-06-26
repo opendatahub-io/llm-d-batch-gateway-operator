@@ -48,7 +48,7 @@ lint:
 
 .PHONY: manifests
 manifests:
-	$(CONTROLLER_GEN) rbac:roleName=llm-d-batch-gateway-operator crd webhook paths="./..." output:crd:artifacts:config=config/crd/bases
+	$(CONTROLLER_GEN) rbac:roleName=operator crd webhook paths="./..." output:crd:artifacts:config=config/crd/bases
 
 .PHONY: generate
 generate:
