@@ -479,8 +479,8 @@ type OTELSpec struct {
 // --- TLS ---
 
 // TLSSpec configures TLS termination for the API server.
-// +kubebuilder:validation:XValidation:rule="!self.enabled || size(self.secretName) > 0 || has(self.certManager)",message="tls.secretName or tls.certManager must be set when tls.enabled is true"
-// +kubebuilder:validation:XValidation:rule="!(size(self.secretName) > 0 && has(self.certManager))",message="tls.secretName and tls.certManager are mutually exclusive"
+// +kubebuilder:validation:XValidation:rule="!self.enabled || (has(self.secretName) && size(self.secretName) > 0) || has(self.certManager)",message="tls.secretName or tls.certManager must be set when tls.enabled is true"
+// +kubebuilder:validation:XValidation:rule="!(has(self.secretName) && size(self.secretName) > 0 && has(self.certManager))",message="tls.secretName and tls.certManager are mutually exclusive"
 type TLSSpec struct {
 	// Enabled controls whether TLS termination is configured for the API server.
 	Enabled bool `json:"enabled,omitempty"`
