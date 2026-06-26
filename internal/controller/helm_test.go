@@ -743,8 +743,12 @@ func TestSpecToHelmValues_ProcessorConfig(t *testing.T) {
 	if got := concurrency["recovery"]; got != int64(4) {
 		t.Errorf("concurrency.recovery = %v, want 4", got)
 	}
-	if got := config["inferenceObjective"]; got != "throughput" {
-		t.Errorf("inferenceObjective = %v, want throughput", got)
+	gwConfig, ok := config["globalInferenceGateway"].(map[string]interface{})
+	if !ok {
+		t.Fatalf("globalInferenceGateway not found or wrong type: %T", config["globalInferenceGateway"])
+	}
+	if got := gwConfig["inferenceObjective"]; got != "throughput" {
+		t.Errorf("globalInferenceGateway.inferenceObjective = %v, want throughput", got)
 	}
 	if got := config["defaultOutputExpirationSeconds"]; got != int64(7200) {
 		t.Errorf("defaultOutputExpirationSeconds = %v, want 7200", got)
