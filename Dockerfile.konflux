@@ -17,13 +17,15 @@ COPY internal/ internal/
 # Obtain the batch-gateway Helm chart into /tmp/batch-gateway-chart.
 COPY Makefile ./
 
-RUN mkdir -p -m 777 /tmp/batch-gateway-chart
+RUN mkdir -p -m 777 /tmp/batch-gateway-chart /tmp/prefetched-charts
 # For all the crazy permisison denies
-COPY --chown=1001:0 Dockerfile prefetched-charts* /tmp/batch-gateway-chart/
+COPY --chown=1001:0 Dockerfile prefetched-charts* /tmp/prefetched-charts/
 
 RUN if [ "${BUILD_TYPE}" != "CI" ]; then \
         make fetch-batch-gateway && \
         cp -r batch-gateway/charts/batch-gateway/* /tmp/batch-gateway-chart/; \
+    else \
+        cp -r /tmp/prefetched-charts/batch-gateway/* /tmp/batch-gateway-chart/ 2>/dev/null || true; \
     fi
 
 RUN mkdir -p bin && \
@@ -35,7 +37,9 @@ FROM registry.access.redhat.com/ubi9/ubi-minimal:9.7@sha256:907b68736aa798b2d382
 WORKDIR /
 COPY --from=builder /opt/app-root/src/bin/manager /manager
 COPY --from=builder /tmp/batch-gateway-chart /charts/batch-gateway/
-RUN rm -f /charts/batch-gateway/Dockerfile
+RUN rm -f /charts/batch-gateway/Dockerfile && \
+    test -f /charts/batch-gateway/Chart.yaml || \
+    { echo "ERROR: /charts/batch-gateway/Chart.yaml not found. Chart directory contents:"; ls -la /charts/batch-gateway/; exit 1; }
 
 USER 1001:1001
 ENTRYPOINT ["/manager"]
