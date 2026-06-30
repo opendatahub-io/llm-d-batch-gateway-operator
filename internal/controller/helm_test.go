@@ -761,6 +761,21 @@ func TestSpecToHelmValues_ProcessorConfig(t *testing.T) {
 	}
 }
 
+func TestSpecToHelmValues_ProcessorHeartbeatInterval(t *testing.T) {
+	gw := minimalGateway()
+	gw.Spec.Processor.Config = &batchv1alpha1.ProcessorConfigSpec{
+		HeartbeatInterval: "5m",
+	}
+
+	vals := specToHelmValues(gw, testSecretName(gw), testImages())
+
+	processor := vals["processor"].(map[string]interface{})
+	config := processor["config"].(map[string]interface{})
+	if got := config["heartbeatInterval"]; got != "5m" {
+		t.Errorf("heartbeatInterval = %v, want 5m", got)
+	}
+}
+
 func TestSpecToHelmValues_ProcessorAIMD(t *testing.T) {
 	enabled := true
 	gw := minimalGateway()

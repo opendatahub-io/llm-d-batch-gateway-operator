@@ -525,6 +525,7 @@ func mergeProcessorConfig(m map[string]interface{}, cfg *batchv1alpha1.Processor
 	if cfg.EnablePprof {
 		m["enablePprof"] = true
 	}
+	setIfNotEmpty(m, "heartbeatInterval", cfg.HeartbeatInterval)
 }
 
 func resourceRequirementsToMap(r *corev1.ResourceRequirements) map[string]interface{} {

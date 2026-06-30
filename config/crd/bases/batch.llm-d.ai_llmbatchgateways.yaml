@@ -353,6 +353,7 @@ spec:
                             default: 60m
                             description: Interval is both the scan frequency and the
                               staleness threshold (e.g. "60m").
+                            maxLength: 32
                             pattern: ^([0-9]+(\.[0-9]+)?(ms|s|m|h))+$
                             type: string
                         type: object
@@ -529,6 +530,15 @@ spec:
                         description: EnablePprof enables the Go pprof profiling HTTP
                           endpoints.
                         type: boolean
+                      heartbeatInterval:
+                        default: 5m
+                        description: |-
+                          HeartbeatInterval is how often the processor refreshes in-flight job entries
+                          to signal liveness. Must be shorter than gc.config.reconciler.interval to
+                          prevent active jobs from being misidentified as orphans.
+                        maxLength: 32
+                        pattern: ^([0-9]+(\.[0-9]+)?(ms|s|m|h))+$
+                        type: string
                       inferenceObjective:
                         description: InferenceObjective specifies the scheduling objective
                           (e.g. "throughput", "latency").
