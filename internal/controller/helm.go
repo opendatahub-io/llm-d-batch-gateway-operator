@@ -332,6 +332,16 @@ func specToHelmValues(gw *batchv1alpha1.LLMBatchGateway, secretName string, imag
 				"verbosity": int64(gw.Spec.GC.Config.Logging.Verbosity),
 			}
 		}
+		if gw.Spec.GC.Config.Reconciler != nil {
+			reconciler := map[string]any{}
+			if gw.Spec.GC.Config.Reconciler.Enabled != nil {
+				reconciler["enabled"] = *gw.Spec.GC.Config.Reconciler.Enabled
+			}
+			setIfNotEmpty(reconciler, "interval", gw.Spec.GC.Config.Reconciler.Interval)
+			if len(reconciler) > 0 {
+				gcConfig["reconciler"] = reconciler
+			}
+		}
 	}
 	if len(gcCollector) > 0 {
 		gcConfig["collector"] = gcCollector

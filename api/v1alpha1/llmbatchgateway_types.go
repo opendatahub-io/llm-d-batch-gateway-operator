@@ -425,6 +425,22 @@ type GCConfigSpec struct {
 
 	// Logging configures log verbosity for the GC.
 	Logging *LoggingConfig `json:"logging,omitempty"`
+
+	// Reconciler configures the orphan reconciler that detects and cleans up
+	// stale jobs missed by the normal collector sweep.
+	Reconciler *ReconcilerSpec `json:"reconciler,omitempty"`
+}
+
+// ReconcilerSpec configures the GC orphan reconciler.
+type ReconcilerSpec struct {
+	// Enabled controls whether the orphan reconciler runs.
+	// +kubebuilder:default=true
+	Enabled *bool `json:"enabled,omitempty"`
+
+	// Interval is both the scan frequency and the staleness threshold (e.g. "60m").
+	// +kubebuilder:default="60m"
+	// +kubebuilder:validation:Pattern=`^([0-9]+(\.[0-9]+)?(ms|s|m|h))+$`
+	Interval string `json:"interval,omitempty"`
 }
 
 // --- Observability ---
