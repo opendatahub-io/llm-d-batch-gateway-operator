@@ -617,6 +617,8 @@ spec:
                         - gcp-pubsub-gated
                         type: string
                       modelServerMonitor:
+                        description: ModelServerMonitor configs a PodMonitor that
+                          scrapes model server metrics.
                         properties:
                           enabled:
                             type: boolean
@@ -813,6 +815,8 @@ spec:
                             type: object
                         type: object
                       tls:
+                        description: TLS configures TLS for connections to inference
+                          gateways.
                         properties:
                           caCertKey:
                             maxLength: 253
@@ -832,6 +836,8 @@ spec:
                             type: string
                         type: object
                       transformConfig:
+                        description: TransformConfig modifies request bodies before
+                          forwarding to the inference gateway.
                         properties:
                           requestTransforms:
                             items:
