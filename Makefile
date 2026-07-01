@@ -16,7 +16,7 @@ BATCH_GATEWAY_REPO ?= https://github.com/opendatahub-io/batch-gateway.git
 BATCH_GATEWAY_REF  ?= a672735cf19325d646a6ef33270df903cfdcd7cb
 BATCH_GATEWAY_DIR  ?= batch-gateway
 
-## Only the async-processor chart is sparse-checked-out from llm-d-async. TODO: update once graduated
+## Only the async-processor chart is sparse-checked-out from llm-d-async. TODO: update once graduated also params.env
 LLM_D_ASYNC_REPO ?= https://github.com/llm-d-incubation/llm-d-async.git
 # TODO: once refactor is done reset to 'main'
 LLM_D_ASYNC_REF  ?= v0.7.2
