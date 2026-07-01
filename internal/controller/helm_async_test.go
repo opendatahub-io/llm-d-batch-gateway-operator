@@ -97,9 +97,13 @@ func TestSpecToAsyncHelmValues_Monitoring(t *testing.T) {
 	gw.Spec.Monitoring = &batchv1alpha1.MonitoringSpec{Enabled: true}
 	vals := specToAsyncHelmValues(gw, testSecretName(gw), testImages())
 
-	pm, ok := vals["podMonitor"].(map[string]any)
+	ap, ok := vals["ap"].(map[string]any)
 	if !ok {
-		t.Fatal("podMonitor not set when monitoring is enabled")
+		t.Fatal("vals[\"ap\"] missing or wrong type")
+	}
+	pm, ok := ap["podMonitor"].(map[string]any)
+	if !ok {
+		t.Fatal("ap.podMonitor not set when monitoring is enabled")
 	}
 	if got := pm["enabled"]; got != true {
 		t.Errorf("podMonitor.enabled = %v, want true", got)
