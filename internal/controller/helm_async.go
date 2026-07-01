@@ -83,10 +83,10 @@ func specToAsyncHelmValues(gw *batchv1alpha1.LLMBatchGateway, secretName string,
 			var queues []any
 			for _, q := range ac.Redis.QueuesConfig {
 				qm := map[string]any{
-					"name": q.Name,
+					"id": q.Name,
 				}
 				setIfNotEmpty(qm, "igw_base_url", q.IGWBaseURL)
-				setIfNotEmpty(qm, "request_queue_name", q.RequestQueueName)
+				setIfNotEmpty(qm, "queue_name", q.RequestQueueName)
 				setIfNotEmpty(qm, "result_queue_name", q.ResultQueueName)
 				setIfNotEmpty(qm, "request_path_url", q.RequestPathURL)
 				setIfNotEmpty(qm, "gate_type", q.GateType)
@@ -144,13 +144,58 @@ func specToAsyncHelmValues(gw *batchv1alpha1.LLMBatchGateway, secretName string,
 		ap["workerPools"] = pools
 	}
 
-	vals := map[string]any{
-		"ap": ap,
+	if ac.TLS != nil {
+		tls := map[string]any{}
+		setIfNotEmpty(tls, "secretName", ac.TLS.SecretName)
+		tls["insecureSkipVerify"] = ac.TLS.InsecureSkipVerify
+		setIfNotEmpty(tls, "caCertKey", ac.TLS.CACertKey)
+		setIfNotEmpty(tls, "certKey", ac.TLS.CertKey)
+		setIfNotEmpty(tls, "keyKey", ac.TLS.KeyKey)
+		ap["tls"] = tls
 	}
 
-	// reuse the existing monitoring block
+	if ac.TransformConfig != nil && len(ac.TransformConfig.RequestTransforms) > 0 {
+		var transforms []any
+		for _, rt := range ac.TransformConfig.RequestTransforms {
+			tm := map[string]any{
+				"name": rt.Name,
+				"type": rt.Type,
+			}
+			if len(rt.Parameters) > 0 {
+				tm["parameters"] = toStringInterfaceMap(rt.Parameters)
+			}
+			transforms = append(transforms, tm)
+		}
+		ap["transformConfig"] = map[string]any{
+			"requestTransforms": transforms,
+		}
+	}
+
+	if gw.Spec.OTEL != nil {
+		otelVals := map[string]any{}
+		setIfNotEmpty(otelVals, "endpoint", gw.Spec.OTEL.Endpoint)
+		otelVals["insecure"] = gw.Spec.OTEL.Insecure
+		setIfNotEmpty(otelVals, "sampler", gw.Spec.OTEL.Sampler)
+		setIfNotEmpty(otelVals, "samplerArg", gw.Spec.OTEL.SamplerArg)
+		otelVals["redisTracing"] = gw.Spec.OTEL.RedisTracing
+		ap["otel"] = otelVals
+	}
+	
+	if ac.ModelServerMonitor != nil && ac.ModelServerMonitor.Enabled {
+		msm := map[string]any{
+			"enabled": true,
+		}
+		if len(ac.ModelServerMonitor.Selector) > 0 {
+			msm["selector"] = toStringInterfaceMap(ac.ModelServerMonitor.Selector)
+		}
+		setIfNotEmpty(msm, "port", ac.ModelServerMonitor.Port)
+		setIfNotEmpty(msm, "path", ac.ModelServerMonitor.Path)
+		setIfNotEmpty(msm, "interval", ac.ModelServerMonitor.Interval)
+		ap["modelServerMonitor"] = msm
+	}
+
 	if gw.Spec.Monitoring != nil && gw.Spec.Monitoring.Enabled {
-		vals["podMonitor"] = map[string]any{
+		ap["podMonitor"] = map[string]any{
 			"enabled": true,
 			"labels": map[string]any{
 				odhMonitoringScrapeLabel: odhMonitoringScrapeValue,
@@ -158,5 +203,25 @@ func specToAsyncHelmValues(gw *batchv1alpha1.LLMBatchGateway, secretName string,
 		}
 	}
 
-	return vals
+	if gw.Spec.Grafana != nil && gw.Spec.Grafana.Enabled {
+		ap["grafana"] = map[string]any{
+			"dashboards": map[string]any{
+				"enabled": true,
+			},
+		}
+	}
+
+	if gw.Spec.PrometheusRule != nil && gw.Spec.PrometheusRule.Enabled {
+		pr := map[string]any{
+			"enabled": true,
+		}
+		if len(gw.Spec.PrometheusRule.Labels) > 0 { 
+			pr["labels"] = toStringInterfaceMap(gw.Spec.PrometheusRule.Labels)
+		}
+		ap["prometheusRule"] = pr
+	}
+
+	return map[string]any{
+		"ap": ap,
+	}
 }
