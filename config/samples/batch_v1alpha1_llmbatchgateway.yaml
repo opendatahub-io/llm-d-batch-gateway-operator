@@ -25,6 +25,31 @@ spec:
     globalInferenceGateway:
       url: http://inference-gateway.default.svc:8000
       requestTimeout: 5m
+    dispatchMode: async  # set to sync if do not want to use async-processor
+    asyncConfig:
+      replicas: 1
+      concurrency: 8
+      drainTimeout: 2m
+      inferenceGateway:
+        url: http://epp.default.svc:8081
+      redis:
+        requestQueueName: request-sortedset
+        resultQueueName: result-list
+        requestPathURL: /v1/completions
+        pollIntervalMs: 1000
+        batchSize: 10
+        gateType: prometheus-saturation
+        gateParams:
+          prometheus_url: http://prometheus:9090
+          saturation_threshold: "0.8"
+      workerPools:
+      - name: default
+        workers: 4
+        gateType: redis-quota
+        gateParams:
+          quota_key: "dispatch-quota"
+      prometheusURL: http://prometheus:9090
+      prometheusCacheTTL: 30s
   gc:
     interval: 30m
 ---

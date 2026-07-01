@@ -18,7 +18,7 @@ BATCH_GATEWAY_DIR  ?= batch-gateway
 
 ## Only the async-processor chart is sparse-checked-out from llm-d-async. TODO: update once graduated
 LLM_D_ASYNC_REPO ?= https://github.com/llm-d-incubation/llm-d-async.git
-LLM_D_ASYNC_REF  ?= main
+LLM_D_ASYNC_REF  ?= v0.7.2 # TODO: once refactor is done reset to 'main'
 LLM_D_ASYNC_DIR  ?= llm-d-async
 
 ## Deps

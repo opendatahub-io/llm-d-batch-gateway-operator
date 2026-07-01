@@ -25,6 +25,19 @@ spec:
       maxRetries: 3
       initialBackoff: 1s
       maxBackoff: 60s
+    dispatchMode: async
+    asyncConfig:
+      replicas: 1
+      concurrency: 8
+      drainTimeout: 2m
+      inferenceGateway:
+        url: http://epp.default.svc:8081
+      redis:
+        requestQueueName: request-sortedset
+        resultQueueName: result-list
+        requestPathURL: /v1/completions
+        pollIntervalMs: 1000
+        batchSize: 10
   gc:
     interval: 30m
     imagePullPolicy: IfNotPresent

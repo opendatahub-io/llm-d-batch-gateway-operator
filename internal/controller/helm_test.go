@@ -23,7 +23,7 @@ func testImages() ComponentImages {
 		APIServer: "ghcr.io/llm-d/batch-gateway-apiserver:latest",
 		Processor: "ghcr.io/llm-d/batch-gateway-processor:latest",
 		GC:        "ghcr.io/llm-d/batch-gateway-gc:latest",
-		Async:     "ghcr.io/llm-d-incubation/async-processor:latest",
+		Async:     "ghcr.io/llm-d-incubation/llm-d-async:v0.7.2",  // TODO: sync with Makefile tag
 	}
 }
 
