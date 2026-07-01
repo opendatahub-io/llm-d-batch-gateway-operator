@@ -50,7 +50,7 @@ spec:
         - name: gcs-whisper
           type: gcs_uri_multipart
           parameters:
-            providers: whisper
+            providers: '["whisper","faster-whisper"]'
       # modelServerMonitor: # PodMonitor CRD not available in Kind, comment this block out
       #   enabled: true
       #   selector:

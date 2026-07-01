@@ -162,7 +162,7 @@ func specToAsyncHelmValues(gw *batchv1alpha1.LLMBatchGateway, secretName string,
 				"type": rt.Type,
 			}
 			if len(rt.Parameters) > 0 {
-				tm["parameters"] = toStringInterfaceMap(rt.Parameters)
+				tm["parameters"] = toJSONAwareMap(rt.Parameters)
 			}
 			transforms = append(transforms, tm)
 		}

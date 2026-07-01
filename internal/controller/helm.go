@@ -2,6 +2,7 @@ package controller
 
 import (
 	"bytes"
+	"encoding/json"
 	"fmt"
 	"io"
 	"path/filepath"
@@ -124,6 +125,21 @@ func toInterfaceSlice(ss []string) []interface{} {
 func toStringInterfaceMap(m map[string]string) map[string]interface{} {
 	result := make(map[string]interface{}, len(m))
 	for k, v := range m {
+		result[k] = v
+	}
+	return result
+}
+
+func toJSONAwareMap(m map[string]string) map[string]any {
+	result := make(map[string]any, len(m))
+	for k, v := range m {
+		var parsed any
+		if json.Unmarshal([]byte(v), &parsed) == nil {
+			if _, isString := parsed.(string); !isString {
+				result[k] = parsed
+				continue
+			}
+		}
 		result[k] = v
 	}
 	return result

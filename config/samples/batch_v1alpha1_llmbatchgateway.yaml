@@ -62,7 +62,7 @@ spec:
       #   - name: gcs-whisper
       #     type: gcs_uri_multipart
       #     parameters:
-      #       providers: whisper
+      #       providers: '["whisper","faster-whisper"]'
       # modelServerMonitor:
       #   enabled: true
       #   selector:
