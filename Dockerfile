@@ -18,5 +18,6 @@ FROM gcr.io/distroless/static:nonroot
 WORKDIR /
 COPY --from=builder /workspace/bin/manager /manager
 COPY batch-gateway/charts/batch-gateway/ /charts/batch-gateway/
+COPY llm-d-async/charts/async-processor/ /charts/async-processor/
 USER 65532:65532
 ENTRYPOINT ["/manager"]

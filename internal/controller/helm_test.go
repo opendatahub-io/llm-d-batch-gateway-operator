@@ -23,6 +23,7 @@ func testImages() ComponentImages {
 		APIServer: "ghcr.io/llm-d/batch-gateway-apiserver:latest",
 		Processor: "ghcr.io/llm-d/batch-gateway-processor:latest",
 		GC:        "ghcr.io/llm-d/batch-gateway-gc:latest",
+		Async:     "ghcr.io/llm-d/async-processor:latest",
 	}
 }
 
@@ -136,7 +137,7 @@ func TestSpecToHelmValues(t *testing.T) {
 		},
 	}
 
-	vals := specToHelmValues(gw, testSecretName(gw), ComponentImages{
+	vals := specToBatchHelmValues(gw, testSecretName(gw), ComponentImages{
 		APIServer: "ghcr.io/llm-d/batch-gateway-apiserver:v0.1.0",
 		Processor: "ghcr.io/llm-d/batch-gateway-processor:v0.1.0",
 		GC:        "ghcr.io/llm-d/batch-gateway-gc:v0.1.0",
@@ -223,7 +224,7 @@ func TestSpecToHelmValues_Monitoring(t *testing.T) {
 	gw := minimalGateway()
 	gw.Spec.Monitoring = &batchv1alpha1.MonitoringSpec{Enabled: true}
 
-	vals := specToHelmValues(gw, testSecretName(gw), testImages())
+	vals := specToBatchHelmValues(gw, testSecretName(gw), testImages())
 
 	t.Run("service monitor enabled", func(t *testing.T) {
 		apiserver := vals["apiserver"].(map[string]interface{})
@@ -272,7 +273,7 @@ func TestSpecToHelmValues_TLS(t *testing.T) {
 		},
 	}
 
-	vals := specToHelmValues(gw, testSecretName(gw), testImages())
+	vals := specToBatchHelmValues(gw, testSecretName(gw), testImages())
 
 	apiserver := vals["apiserver"].(map[string]interface{})
 	tls := apiserver["tls"].(map[string]interface{})
@@ -303,7 +304,7 @@ func TestSpecToHelmValues_HTTPRoute(t *testing.T) {
 		},
 	}
 
-	vals := specToHelmValues(gw, testSecretName(gw), testImages())
+	vals := specToBatchHelmValues(gw, testSecretName(gw), testImages())
 
 	apiserver := vals["apiserver"].(map[string]interface{})
 	hr := apiserver["httpRoute"].(map[string]interface{})
@@ -345,16 +346,16 @@ func TestNewHelmRenderer(t *testing.T) {
 	})
 }
 
-func TestRenderChart(t *testing.T) {
+func TestRenderBatchChart(t *testing.T) {
 	renderer, err := NewHelmRenderer("../../batch-gateway/charts/batch-gateway", testImages())
 	if err != nil {
 		t.Fatalf("NewHelmRenderer() error: %v", err)
 	}
 
 	gw := minimalGateway()
-	objects, err := renderer.RenderChart(gw, testSecretName(gw))
+	objects, err := renderer.RenderBatchChart(gw, testSecretName(gw))
 	if err != nil {
-		t.Fatalf("RenderChart() error: %v", err)
+		t.Fatalf("RenderBatchChart() error: %v", err)
 	}
 
 	kinds := map[string]int{}
@@ -395,7 +396,7 @@ func TestRenderChart(t *testing.T) {
 	})
 }
 
-func TestRenderChart_WithMonitoring(t *testing.T) {
+func TestRenderBatchChart_WithMonitoring(t *testing.T) {
 	renderer, err := NewHelmRenderer("../../batch-gateway/charts/batch-gateway", testImages())
 	if err != nil {
 		t.Fatalf("NewHelmRenderer() error: %v", err)
@@ -404,9 +405,9 @@ func TestRenderChart_WithMonitoring(t *testing.T) {
 	gw := minimalGateway()
 	gw.Spec.Monitoring = &batchv1alpha1.MonitoringSpec{Enabled: true}
 
-	objects, err := renderer.RenderChart(gw, testSecretName(gw))
+	objects, err := renderer.RenderBatchChart(gw, testSecretName(gw))
 	if err != nil {
-		t.Fatalf("RenderChart() error: %v", err)
+		t.Fatalf("RenderBatchChart() error: %v", err)
 	}
 
 	kinds := map[string]int{}
@@ -439,7 +440,7 @@ func TestSpecToHelmValues_Logging(t *testing.T) {
 		Logging: &batchv1alpha1.LoggingConfig{Verbosity: 4},
 	}
 
-	vals := specToHelmValues(gw, testSecretName(gw), testImages())
+	vals := specToBatchHelmValues(gw, testSecretName(gw), testImages())
 
 	t.Run("apiserver logging verbosity", func(t *testing.T) {
 		apiserver := vals["apiserver"].(map[string]interface{})
@@ -480,7 +481,7 @@ func TestSpecToHelmValues_FSStorage(t *testing.T) {
 		},
 	}
 
-	vals := specToHelmValues(gw, testSecretName(gw), testImages())
+	vals := specToBatchHelmValues(gw, testSecretName(gw), testImages())
 
 	global := vals["global"].(map[string]interface{})
 	fc := global["fileClient"].(map[string]interface{})
@@ -516,7 +517,7 @@ func TestSpecToHelmValues_OTEL(t *testing.T) {
 		PostgresqlTracing: true,
 	}
 
-	vals := specToHelmValues(gw, testSecretName(gw), testImages())
+	vals := specToBatchHelmValues(gw, testSecretName(gw), testImages())
 
 	global := vals["global"].(map[string]interface{})
 	otel := global["otel"].(map[string]interface{})
@@ -542,7 +543,7 @@ func TestSpecToHelmValues_TLSSecretName(t *testing.T) {
 		SecretName: "my-tls-secret",
 	}
 
-	vals := specToHelmValues(gw, testSecretName(gw), testImages())
+	vals := specToBatchHelmValues(gw, testSecretName(gw), testImages())
 
 	apiserver := vals["apiserver"].(map[string]interface{})
 	tls := apiserver["tls"].(map[string]interface{})
@@ -562,7 +563,7 @@ func TestSpecToHelmValues_TLSDNSNames(t *testing.T) {
 		},
 	}
 
-	vals := specToHelmValues(gw, testSecretName(gw), testImages())
+	vals := specToBatchHelmValues(gw, testSecretName(gw), testImages())
 
 	apiserver := vals["apiserver"].(map[string]interface{})
 	tls := apiserver["tls"].(map[string]interface{})
@@ -589,7 +590,7 @@ func TestSpecToHelmValues_HTTPRouteAnnotations(t *testing.T) {
 		},
 	}
 
-	vals := specToHelmValues(gw, testSecretName(gw), testImages())
+	vals := specToBatchHelmValues(gw, testSecretName(gw), testImages())
 
 	apiserver := vals["apiserver"].(map[string]interface{})
 	hr := apiserver["httpRoute"].(map[string]interface{})
@@ -609,7 +610,7 @@ func TestSpecToHelmValues_ModelGateways(t *testing.T) {
 		"model-a": {URL: "http://model-a:8000", RequestTimeout: "2m"},
 	}
 
-	vals := specToHelmValues(gw, testSecretName(gw), testImages())
+	vals := specToBatchHelmValues(gw, testSecretName(gw), testImages())
 
 	processor := vals["processor"].(map[string]interface{})
 	config := processor["config"].(map[string]interface{})
@@ -630,7 +631,7 @@ func TestSpecToHelmValues_PrometheusRule(t *testing.T) {
 		Labels:  map[string]string{"prometheus": "kube-prometheus"},
 	}
 
-	vals := specToHelmValues(gw, testSecretName(gw), testImages())
+	vals := specToBatchHelmValues(gw, testSecretName(gw), testImages())
 
 	pr := vals["prometheusRule"].(map[string]interface{})
 	if got := pr["enabled"]; got != true {
@@ -662,7 +663,7 @@ func TestSpecToHelmValues_APIServerConfig(t *testing.T) {
 		},
 	}
 
-	vals := specToHelmValues(gw, testSecretName(gw), testImages())
+	vals := specToBatchHelmValues(gw, testSecretName(gw), testImages())
 
 	apiserver := vals["apiserver"].(map[string]interface{})
 	config := apiserver["config"].(map[string]interface{})
@@ -722,7 +723,7 @@ func TestSpecToHelmValues_ProcessorConfig(t *testing.T) {
 		EnablePprof:                    true,
 	}
 
-	vals := specToHelmValues(gw, testSecretName(gw), testImages())
+	vals := specToBatchHelmValues(gw, testSecretName(gw), testImages())
 
 	processor := vals["processor"].(map[string]interface{})
 	config := processor["config"].(map[string]interface{})
@@ -778,7 +779,7 @@ func TestSpecToHelmValues_ProcessorAIMD(t *testing.T) {
 		},
 	}
 
-	vals := specToHelmValues(gw, testSecretName(gw), testImages())
+	vals := specToBatchHelmValues(gw, testSecretName(gw), testImages())
 
 	processor := vals["processor"].(map[string]interface{})
 	config := processor["config"].(map[string]interface{})
@@ -811,7 +812,7 @@ func TestSpecToHelmValues_GCConfig(t *testing.T) {
 		MaxConcurrency: 10,
 	}
 
-	vals := specToHelmValues(gw, testSecretName(gw), testImages())
+	vals := specToBatchHelmValues(gw, testSecretName(gw), testImages())
 
 	gc := vals["gc"].(map[string]interface{})
 	config := gc["config"].(map[string]interface{})
@@ -833,7 +834,7 @@ func TestSpecToHelmValues_InferenceGatewayMaxRetries(t *testing.T) {
 		MaxRetries: &maxRetries,
 	}
 
-	vals := specToHelmValues(gw, testSecretName(gw), testImages())
+	vals := specToBatchHelmValues(gw, testSecretName(gw), testImages())
 
 	processor := vals["processor"].(map[string]interface{})
 	config := processor["config"].(map[string]interface{})
@@ -850,7 +851,7 @@ func TestSpecToHelmValues_OmitsTLSInsecureSkipVerify(t *testing.T) {
 		TLSInsecureSkipVerify: true,
 	}
 
-	vals := specToHelmValues(gw, testSecretName(gw), testImages())
+	vals := specToBatchHelmValues(gw, testSecretName(gw), testImages())
 
 	processor := vals["processor"].(map[string]interface{})
 	config := processor["config"].(map[string]interface{})
@@ -873,7 +874,7 @@ func TestSpecToHelmValues_ResourceRequirements(t *testing.T) {
 		},
 	}
 
-	vals := specToHelmValues(gw, testSecretName(gw), testImages())
+	vals := specToBatchHelmValues(gw, testSecretName(gw), testImages())
 
 	apiserver := vals["apiserver"].(map[string]interface{})
 	res := apiserver["resources"].(map[string]interface{})

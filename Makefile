@@ -16,6 +16,11 @@ BATCH_GATEWAY_REPO ?= https://github.com/opendatahub-io/batch-gateway.git
 BATCH_GATEWAY_REF  ?= a672735cf19325d646a6ef33270df903cfdcd7cb
 BATCH_GATEWAY_DIR  ?= batch-gateway
 
+## Only the async-processor chart is sparse-checked-out from llm-d-async. TODO: update once graduated
+LLM_D_ASYNC_REPO ?= https://github.com/llm-d-incubation/llm-d-async.git
+LLM_D_ASYNC_REF  ?= main
+LLM_D_ASYNC_DIR  ?= llm-d-async
+
 ## Deps
 
 .PHONY: deps
@@ -57,7 +62,7 @@ generate:
 ## Test
 
 .PHONY: test
-test: generate manifests setup-envtest fetch-batch-gateway
+test: generate manifests setup-envtest fetch-batch-gateway fetch-llm-d-async
 	KUBEBUILDER_ASSETS="$$($(ENVTEST) use $(ENVTEST_K8S_VERSION) --bin-dir $(LOCALBIN) -p path)" \
 	go test -v ./... -count=1
 
@@ -70,7 +75,7 @@ setup-envtest:
 CONTAINER_TOOL ?= $(shell command -v docker 2>/dev/null || command -v podman 2>/dev/null)
 
 .PHONY: docker-build
-docker-build: fetch-batch-gateway
+docker-build: fetch-batch-gateway fetch-llm-d-async
 	$(CONTAINER_TOOL) build -t $(IMG) -f Dockerfile .
 
 .PHONY: docker-build-konflux
@@ -118,7 +123,7 @@ undeploy:
 ## Dev (Kind)
 
 .PHONY: dev-deploy
-dev-deploy: kustomize fetch-batch-gateway
+dev-deploy: kustomize fetch-batch-gateway fetch-llm-d-async
 	PATH="$(shell pwd)/bin:$$PATH" hack/dev-deploy.sh
 
 .PHONY: dev-clean
@@ -158,9 +163,28 @@ fetch-batch-gateway: ## Fetch the full batch-gateway repo at BATCH_GATEWAY_REF (
 		git -C $(BATCH_GATEWAY_DIR) checkout -q FETCH_HEAD; \
 	fi
 
+.PHONY: fetch-llm-d-async
+fetch-llm-d-async: ## Sparse-checkout only charts/async-processor from llm-d-async at LLM_D_ASYNC_REF.
+	@if ! git -C $(LLM_D_ASYNC_DIR) rev-parse --git-dir >/dev/null 2>&1; then \
+		echo "Cloning llm-d-async $(LLM_D_ASYNC_REF) from $(LLM_D_ASYNC_REPO) (sparse: charts/async-processor)"; \
+		git init -q $(LLM_D_ASYNC_DIR) && \
+		git -C $(LLM_D_ASYNC_DIR) sparse-checkout set --no-cone 'charts/async-processor/*' && \
+		git -C $(LLM_D_ASYNC_DIR) fetch -q --depth 1 $(LLM_D_ASYNC_REPO) $(LLM_D_ASYNC_REF) && \
+		git -C $(LLM_D_ASYNC_DIR) checkout -q FETCH_HEAD; \
+	elif [ "$$(git -C $(LLM_D_ASYNC_DIR) rev-parse HEAD)" = "$(LLM_D_ASYNC_REF)" ]; then \
+		echo "llm-d-async already at $(LLM_D_ASYNC_REF)"; \
+	else \
+		echo "Updating llm-d-async to $(LLM_D_ASYNC_REF) from $(LLM_D_ASYNC_REPO)"; \
+		git -C $(LLM_D_ASYNC_DIR) fetch -q --depth 1 $(LLM_D_ASYNC_REPO) $(LLM_D_ASYNC_REF) && \
+		git -C $(LLM_D_ASYNC_DIR) checkout -q FETCH_HEAD; \
+	fi
+
 .PHONY: sync-prefetched-charts
-sync-prefetched-charts: fetch-batch-gateway ## For downstream with konflux only
+sync-prefetched-charts: fetch-batch-gateway fetch-llm-d-async ## For downstream with konflux only
 	@rm -rf prefetched-charts/batch-gateway && mkdir -p prefetched-charts
 	@cp -r $(BATCH_GATEWAY_DIR)/charts/batch-gateway prefetched-charts/batch-gateway
 	@echo "synced prefetched-charts/batch-gateway at $(BATCH_GATEWAY_REF)"
+	@rm -rf prefetched-charts/async-processor && mkdir -p prefetched-charts
+	@cp -r $(LLM_D_ASYNC_DIR)/charts/async-processor prefetched-charts/async-processor
+	@echo "synced prefetched-charts/async-processor at $(LLM_D_ASYNC_REF)"
 

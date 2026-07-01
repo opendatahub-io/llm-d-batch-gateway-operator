@@ -59,7 +59,7 @@ func newTestGateway(name string) *batchv1alpha1.LLMBatchGateway {
 func TestReconcile(t *testing.T) {
 	ctx := context.Background()
 
-	helmRenderer, err := NewHelmRenderer("../../batch-gateway/charts/batch-gateway", testImages())
+	batchGWHelmRenderer, err := NewHelmRenderer("../../batch-gateway/charts/batch-gateway", testImages())
 	if err != nil {
 		t.Fatalf("NewHelmRenderer() error: %v", err)
 	}
@@ -68,7 +68,7 @@ func TestReconcile(t *testing.T) {
 	resyncTimeout := 5 * time.Minute
 	reconcileTimeout := 30 * time.Second
 
-	reconciler := NewLLMBatchGatewayReconciler(k8sClient, k8sClient.Scheme(), helmRenderer, fakeRecorder, resyncTimeout, reconcileTimeout)
+	reconciler := NewLLMBatchGatewayReconciler(k8sClient, k8sClient.Scheme(), batchGWHelmRenderer, nil, fakeRecorder, resyncTimeout, reconcileTimeout)
 
 	t.Run("returns RequeueAfter on successful reconcile", func(t *testing.T) {
 		gw := newTestGateway("test-requeue")
@@ -282,8 +282,8 @@ func TestReconcile(t *testing.T) {
 			if !isOwnedByUID(d.OwnerReferences, gw.UID) {
 				continue
 			}
-			component := d.Labels["app.kubernetes.io/component"]
-			if component == "apiserver" {
+			component := d.Labels[labelKeyComponent]
+			if component == componentAPIServer {
 				if d.Spec.Replicas == nil || *d.Spec.Replicas != 3 {
 					replicas := int32(0)
 					if d.Spec.Replicas != nil {
@@ -939,7 +939,7 @@ func isOwnedByUID(refs []metav1.OwnerReference, uid types.UID) bool {
 func TestReconcileTimeout(t *testing.T) {
 	ctx := context.Background()
 
-	helmRenderer, err := NewHelmRenderer("../../batch-gateway/charts/batch-gateway", testImages())
+	batchGWHelmRenderer, err := NewHelmRenderer("../../batch-gateway/charts/batch-gateway", testImages())
 	if err != nil {
 		t.Fatalf("NewHelmRenderer() error: %v", err)
 	}
@@ -948,7 +948,7 @@ func TestReconcileTimeout(t *testing.T) {
 	resyncTimeout := 5 * time.Minute
 	reconcileTimeout := -1 * time.Second
 	// Use a 1ns timeout so the context is expired before the first API call.
-	reconciler := NewLLMBatchGatewayReconciler(k8sClient, k8sClient.Scheme(), helmRenderer, fakeRecorder, resyncTimeout, reconcileTimeout)
+	reconciler := NewLLMBatchGatewayReconciler(k8sClient, k8sClient.Scheme(), batchGWHelmRenderer, nil, fakeRecorder, resyncTimeout, reconcileTimeout)
 
 	gw := newTestGateway("test-timeout")
 	if err := k8sClient.Create(ctx, gw); err != nil {
@@ -1005,7 +1005,7 @@ func findOwnedDeployment(ctx context.Context, t *testing.T, gw *batchv1alpha1.LL
 		if !isOwnedByUID(d.OwnerReferences, gw.UID) {
 			continue
 		}
-		if d.Labels["app.kubernetes.io/component"] == component {
+		if d.Labels[labelKeyComponent] == component {
 			return d
 		}
 	}

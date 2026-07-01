@@ -3,3 +3,6 @@ bin/
 
 # Fetched on demand via `make fetch-batch-gateway` (pinned to BATCH_GATEWAY_REF), not tracked in git.
 /batch-gateway/
+
+# Fetched on demand via `make fetch-llm-d-async` (pinned to LLM_D_ASYNC_REF), not tracked in git.
+/llm-d-async/

@@ -210,4 +210,3 @@ type AsyncWorkerPool struct {
 	// GateParams provides parameters for the gating mechanism.
 	GateParams map[string]string `json:"gateParams,omitempty"`
 }
-
