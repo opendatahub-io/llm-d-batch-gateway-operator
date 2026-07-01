@@ -16,6 +16,7 @@ import (
 // +kubebuilder:printcolumn:name="API-Ready",type="integer",JSONPath=`.status.componentStatus.apiServer.readyReplicas`
 // +kubebuilder:printcolumn:name="Proc-Ready",type="integer",JSONPath=`.status.componentStatus.processor.readyReplicas`
 // +kubebuilder:printcolumn:name="GC-Ready",type="integer",JSONPath=`.status.componentStatus.gc.readyReplicas`
+// +kubebuilder:printcolumn:name="Async-Ready",type="integer",JSONPath=`.status.componentStatus.asyncProcessor.readyReplicas`
 // +kubebuilder:printcolumn:name="Age",type="date",JSONPath=".metadata.creationTimestamp"
 type LLMBatchGateway struct {
 	metav1.TypeMeta   `json:",inline"`
@@ -257,6 +258,7 @@ type LoggingConfig struct {
 // --- Processor ---
 
 // ProcessorSpec configures the request-processing worker component.
+// +kubebuilder:validation:XValidation:rule="self.dispatchMode != 'async' || has(self.asyncConfig)",message=".spec.processor.asyncConfig is required when dispatchMode is 'async'"
 type ProcessorSpec struct {
 	// Replicas is the desired number of processor pods.
 	// Setting this to 0 suspends the processor; the Ready condition will be False.
@@ -282,6 +284,19 @@ type ProcessorSpec struct {
 
 	// Config holds fine-grained processor configuration.
 	Config *ProcessorConfigSpec `json:"config,omitempty"`
+
+	// DispatchMode enable how batch requests are dispatched to inference backends.
+	// - "sync" (default) sends requests directly via HTTP
+	// - "async" deploys async-processor that dispatches via a message queue.
+	// Toggle between "sync" and "async" can keep asyncConfig block intact.
+	// +kubebuilder:validation:Enum=sync;async
+	// +kubebuilder:default=sync
+	DispatchMode string `json:"dispatchMode,omitempty"` // TODO: should switch default to async ?
+
+	// AsyncConfig configures the async-processor deployment.
+	// Only takes effect when DispatchMode is "async" mode
+	// +optional
+	AsyncConfig *AsyncProcessorSpec `json:"asyncConfig,omitempty"`
 }
 
 // InferenceGatewaySpec configures a connection to an inference gateway.
@@ -570,6 +585,11 @@ type ComponentStatus struct {
 
 	// GC reports the replica status of the garbage-collector Deployment.
 	GC *ComponentReplicaStatus `json:"gc,omitempty"`
+
+	// AsyncProcessor reports the replica status of the async-processor Deployment.
+	// Absent when spec.processor.dispatchMode is "sync" (do no Deployment).
+	// Present with actual replica counts when dispatchMode is "async".
+	AsyncProcessor *ComponentReplicaStatus `json:"asyncProcessor,omitempty"`
 }
 
 // ComponentReplicaStatus reports the desired and ready replica counts for a Deployment.
