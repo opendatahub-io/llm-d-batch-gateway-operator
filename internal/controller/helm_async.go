@@ -18,6 +18,9 @@ func (h *HelmRenderer) RenderAsyncChart(gw *batchv1alpha1.LLMBatchGateway, secre
 	})
 }
 
+// specToAsyncHelmValues maps the CRD spec to upstream async-processor Helm values.
+// secretName is used only by the Redis backend (redis.secretName); GCP Pub/Sub
+// authenticates via Workload Identity and does not need a secret.
 func specToAsyncHelmValues(gw *batchv1alpha1.LLMBatchGateway, secretName string, images ComponentImages) map[string]any {
 	ac := gw.Spec.Processor.AsyncConfig
 	if ac == nil {
@@ -30,6 +33,11 @@ func specToAsyncHelmValues(gw *batchv1alpha1.LLMBatchGateway, secretName string,
 			"repository": asyncRepo,
 			"tag":        asyncTag,
 		},
+	}
+	if ac.Replicas != nil {
+		// upstream chart currently hardcodes replicas: 1 in the template;
+		// pass the value so it takes effect once upstream templates it from values.
+		ap["replicaCount"] = int64(*ac.Replicas)
 	}
 	if ac.ImagePullPolicy != "" {
 		ap["imagePullPolicy"] = string(ac.ImagePullPolicy)

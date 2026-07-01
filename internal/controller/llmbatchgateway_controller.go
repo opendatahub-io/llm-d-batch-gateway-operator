@@ -39,14 +39,14 @@ const (
 	conditionGCAvailable             = "GCAvailable"
 	conditionAsyncProcessorAvailable = "AsyncProcessorAvailable"
 
-	dispatchModeSync  = "sync"
 	dispatchModeAsync = "async"
 
-	labelKeyComponent          = "app.kubernetes.io/component"
-	componentAPIServer         = "apiserver"
-	componentProcessor         = "processor"
-	componentGC                = "gc"
-	componentAsyncProcessor    = "async-processor"
+	labelKeyComponent       = "app.kubernetes.io/component"
+	labelKeyInstance        = "app.kubernetes.io/instance"
+	componentAPIServer      = "apiserver"
+	componentProcessor      = "processor"
+	componentGC             = "gc"
+	componentAsyncProcessor = "async-processor"
 
 	conditionsStatusField         = "conditions"
 	componentStatusField          = "componentStatus"
@@ -224,7 +224,7 @@ func (r *LLMBatchGatewayReconciler) reconcile(ctx context.Context, req ctrl.Requ
 		r.secretFilter.add(ref.Namespace, ref.Name)
 	}
 
-	objects, err := r.BatchGWHelmRenderer.RenderBatchChart(&gw, localSecretName)
+	batchObjects, err := r.BatchGWHelmRenderer.RenderBatchChart(&gw, localSecretName)
 	if err != nil {
 		gw.Status.ObservedGeneration = gw.Generation
 		meta.SetStatusCondition(&gw.Status.Conditions, metav1.Condition{
@@ -234,17 +234,20 @@ func (r *LLMBatchGatewayReconciler) reconcile(ctx context.Context, req ctrl.Requ
 			Message:            err.Error(),
 			ObservedGeneration: gw.Generation,
 		})
-		r.Recorder.Eventf(&gw, corev1.EventTypeWarning, "RenderFailed", "Helm chart render failed: %s", err)
+		r.Recorder.Eventf(&gw, corev1.EventTypeWarning, "RenderFailed", "Batch-gateway chart render failed: %s", err)
 		if statusErr := NewStatusPatch(gw.ResourceVersion).
 			Add(conditionsStatusField, gw.Status.Conditions).
 			Add(observedGenerationStatusField, gw.Status.ObservedGeneration).
 			Apply(ctx, r.Client, &gw); statusErr != nil {
-			return ctrl.Result{}, fmt.Errorf("rendering chart: %w; also failed to patch status: %w", err, statusErr)
+			return ctrl.Result{}, fmt.Errorf("rendering batch-gateway chart: %w; failed to patch status: %w", err, statusErr)
 		}
-		return ctrl.Result{}, fmt.Errorf("rendering chart: %w", err)
+		return ctrl.Result{}, fmt.Errorf("rendering batch-gateway chart: %w", err)
 	}
 
 	if gw.Spec.Processor.DispatchMode == dispatchModeAsync && gw.Spec.Processor.AsyncConfig != nil {
+		if r.AsyncHelmRenderer == nil {
+			return ctrl.Result{}, fmt.Errorf("async dispatch mode requires an async helm renderer, but none was configured")
+		}
 		asyncObjects, err := r.AsyncHelmRenderer.RenderAsyncChart(&gw, localSecretName)
 		if err != nil {
 			gw.Status.ObservedGeneration = gw.Generation
@@ -260,14 +263,15 @@ func (r *LLMBatchGatewayReconciler) reconcile(ctx context.Context, req ctrl.Requ
 				Add(conditionsStatusField, gw.Status.Conditions).
 				Add(observedGenerationStatusField, gw.Status.ObservedGeneration).
 				Apply(ctx, r.Client, &gw); statusErr != nil {
-				return ctrl.Result{}, fmt.Errorf("rendering async chart: %w; also failed to patch status: %w", err, statusErr)
+				return ctrl.Result{}, fmt.Errorf("rendering async chart: %w; failed to patch status: %w", err, statusErr)
 			}
 			return ctrl.Result{}, fmt.Errorf("rendering async chart: %w", err)
 		}
-		objects = append(objects, asyncObjects...)
+		batchObjects = append(batchObjects, asyncObjects...)
 	}
 
-	for _, obj := range objects {
+	allObjects := batchObjects
+	for _, obj := range allObjects {
 		obj.SetNamespace(gw.Namespace)
 
 		if err := controllerutil.SetControllerReference(&gw, obj, r.Scheme); err != nil {
@@ -285,7 +289,7 @@ func (r *LLMBatchGatewayReconciler) reconcile(ctx context.Context, req ctrl.Requ
 		logger.V(2).Info("applied resource", "kind", obj.GetKind(), "name", obj.GetName())
 	}
 
-	if err := r.deleteOrphanedResources(ctx, &gw, objects); err != nil {
+	if err := r.deleteOrphanedResources(ctx, &gw, allObjects); err != nil {
 		return ctrl.Result{}, fmt.Errorf("deleting orphaned resources: %w", err)
 	}
 
@@ -363,7 +367,7 @@ func (r *LLMBatchGatewayReconciler) deleteOrphanedResources(
 func (r *LLMBatchGatewayReconciler) updateStatus(ctx context.Context, gw *batchv1alpha1.LLMBatchGateway) error {
 	var deployments appsv1.DeploymentList
 	if err := r.List(ctx, &deployments, client.InNamespace(gw.Namespace), client.MatchingLabels{
-		"app.kubernetes.io/instance": gw.Name,
+		labelKeyInstance: gw.Name,
 	}); err != nil {
 		return fmt.Errorf("listing deployments: %w", err)
 	}
