@@ -246,7 +246,7 @@ func (r *LLMBatchGatewayReconciler) reconcile(ctx context.Context, req ctrl.Requ
 
 	if gw.Spec.Processor.DispatchMode == dispatchModeAsync && gw.Spec.Processor.AsyncConfig != nil {
 		if r.AsyncHelmRenderer == nil {
-			return ctrl.Result{}, fmt.Errorf("async dispatch mode requires an async helm renderer, but none was configured")
+			return ctrl.Result{}, errors.New("async dispatch mode requires an async helm renderer, but none was configured")
 		}
 		asyncObjects, err := r.AsyncHelmRenderer.RenderAsyncChart(&gw, localSecretName)
 		if err != nil {

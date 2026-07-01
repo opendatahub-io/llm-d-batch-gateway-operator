@@ -50,7 +50,7 @@ func specToAsyncHelmValues(gw *batchv1alpha1.LLMBatchGateway, secretName string,
 	if ac.InferenceGateway != nil {
 		ap["igwBaseURL"] = ac.InferenceGateway.URL
 	}
-	
+
 	if ac.Resources != nil {
 		ap["resources"] = resourceRequirementsToMap(ac.Resources)
 	}
@@ -143,7 +143,6 @@ func specToAsyncHelmValues(gw *batchv1alpha1.LLMBatchGateway, secretName string,
 		}
 		ap["workerPools"] = pools
 	}
-
 
 	vals := map[string]any{
 		"ap": ap,

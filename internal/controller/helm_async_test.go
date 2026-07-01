@@ -34,12 +34,13 @@ func TestSpecToAsyncHelmValues(t *testing.T) {
 	}
 
 	t.Run("image", func(t *testing.T) {
+		wantRepo, wantTag := splitImage(testImages().Async)
 		img := ap["image"].(map[string]any)
-		if got := img["repository"]; got != "ghcr.io/llm-d-incubation/async-processor" {
-			t.Errorf("image.repository = %v, want ghcr.io/llm-d-incubation/async-processor", got)
+		if got := img["repository"]; got != wantRepo {
+			t.Errorf("image.repository = %v, want %s", got, wantRepo)
 		}
-		if got := img["tag"]; got != "latest" {
-			t.Errorf("image.tag = %v, want latest", got)
+		if got := img["tag"]; got != wantTag {
+			t.Errorf("image.tag = %v, want %s", got, wantTag)
 		}
 	})
 
