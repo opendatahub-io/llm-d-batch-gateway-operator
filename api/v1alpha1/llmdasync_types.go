@@ -14,6 +14,8 @@ import (
 type AsyncProcessorSpec struct {
 	// Replicas is the desired number of async-processor pods.
 	// Setting this to 0 suspends the async-processor; the Ready condition will be False.
+	// NOTE: the upstream async-processor chart currently hardcodes replicas to 1;
+	// this field will take effect once the upstream chart templates it from values.
 	// +kubebuilder:default=1
 	// +kubebuilder:validation:Minimum=0
 	Replicas *int32 `json:"replicas,omitempty"`
