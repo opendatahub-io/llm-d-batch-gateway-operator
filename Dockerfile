@@ -19,7 +19,5 @@ WORKDIR /
 COPY --from=builder /workspace/bin/manager /manager
 COPY batch-gateway/charts/batch-gateway/ /charts/batch-gateway/
 COPY llm-d-async/charts/async-processor/ /charts/async-processor/
-RUN test -f /charts/batch-gateway/Chart.yaml && test -f /charts/async-processor/Chart.yaml || \
-    { echo "ERROR: chart Chart.yaml missing"; exit 1; }
 USER 65532:65532
 ENTRYPOINT ["/manager"]
