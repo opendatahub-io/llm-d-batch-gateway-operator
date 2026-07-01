@@ -180,7 +180,7 @@ func specToAsyncHelmValues(gw *batchv1alpha1.LLMBatchGateway, secretName string,
 		otelVals["redisTracing"] = gw.Spec.OTEL.RedisTracing
 		ap["otel"] = otelVals
 	}
-	
+
 	if ac.ModelServerMonitor != nil && ac.ModelServerMonitor.Enabled {
 		msm := map[string]any{
 			"enabled": true,
@@ -215,7 +215,7 @@ func specToAsyncHelmValues(gw *batchv1alpha1.LLMBatchGateway, secretName string,
 		pr := map[string]any{
 			"enabled": true,
 		}
-		if len(gw.Spec.PrometheusRule.Labels) > 0 { 
+		if len(gw.Spec.PrometheusRule.Labels) > 0 {
 			pr["labels"] = toStringInterfaceMap(gw.Spec.PrometheusRule.Labels)
 		}
 		ap["prometheusRule"] = pr
