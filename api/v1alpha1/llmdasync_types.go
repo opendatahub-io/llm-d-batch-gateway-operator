@@ -40,12 +40,6 @@ type AsyncProcessorSpec struct {
 	// +kubebuilder:validation:Pattern=`^([0-9]+(\.[0-9]+)?(ms|s|m|h))+$`
 	DrainTimeout string `json:"drainTimeout,omitempty"`
 
-	// MessageQueueImpl selects the message queue implementation.
-	// When empty, auto-selection occurs based on which backend is enabled.
-	// Valid values: "redis-pubsub", "redis-sortedset".
-	// +kubebuilder:validation:Enum="";redis-pubsub;redis-sortedset
-	MessageQueueImpl string `json:"messageQueueImpl,omitempty"`
-
 	// Redis configures the Redis message queue backend.
 	Redis *AsyncRedisSpec `json:"redis,omitempty"`
 

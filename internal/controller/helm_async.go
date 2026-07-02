@@ -93,7 +93,7 @@ func specToAsyncHelmValues(gw *batchv1alpha1.LLMBatchGateway, secretName string,
 		}
 		ap["redis"] = redis
 	}
-	setIfNotEmpty(ap, "messageQueueImpl", ac.MessageQueueImpl)
+	ap["messageQueueImpl"] = "redis-sortedset" // this is the only support value here even upstream might have different options
 
 	if len(ac.WorkerPools) > 0 {
 		var pools []any

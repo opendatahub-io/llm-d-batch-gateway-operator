@@ -538,16 +538,6 @@ spec:
                         - message: tlsInsecureSkipVerify is not allowed; configure
                             trusted CA certificates instead
                           rule: '!has(self.tlsInsecureSkipVerify) || !self.tlsInsecureSkipVerify'
-                      messageQueueImpl:
-                        description: |-
-                          MessageQueueImpl selects the message queue implementation.
-                          When empty, auto-selection occurs based on which backend is enabled.
-                          Valid values: "redis-pubsub", "redis-sortedset".
-                        enum:
-                        - ""
-                        - redis-pubsub
-                        - redis-sortedset
-                        type: string
                       modelServerMonitor:
                         description: ModelServerMonitor configs a PodMonitor that
                           scrapes model server metrics.
