@@ -79,8 +79,9 @@ func specToAsyncHelmValues(gw *batchv1alpha1.LLMBatchGateway, secretName string,
 			var queues []any
 			for _, q := range ac.Redis.QueuesConfig {
 				qm := map[string]any{
-					"id": q.Name,
+					"queue_name": q.Name,
 				}
+				setIfNotEmpty(qm, "worker_pool_id", q.WorkerPoolID)
 				setIfNotEmpty(qm, "igw_base_url", q.IGWBaseURL)
 				setIfNotEmpty(qm, "request_path_url", q.RequestPathURL)
 				setIfNotEmpty(qm, "gate_type", q.GateType)

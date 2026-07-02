@@ -15,6 +15,7 @@ on:
       - 'hack/**'
       - 'test/**'
       - 'Dockerfile'
+      - 'Dockerfile.konflux'
       - 'go.mod'
       - 'go.sum'
       - 'Makefile'
@@ -25,9 +26,19 @@ env:
 
 jobs:
   integration-tests:
-    name: Integration Tests
+    name: Integration Tests (${{ matrix.dev_profile }})
     runs-on: ubuntu-latest
     timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - dev_profile: sync
+          - dev_profile: async
+          - dev_profile: async-gate-redis
+          - dev_profile: async-gate-prometheus-query
+          - dev_profile: async-gate-prometheus-budget
+          - dev_profile: async-gate-scrape
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
 
@@ -41,16 +52,21 @@ jobs:
       - name: Install Helm
         uses: azure/setup-helm@1a275c3b69536ee54be43f2070a358922e12c8d4 # v4
 
+      - name: Install yq
+        run: go install github.com/mikefarah/yq/v4@latest
+
       - name: Deploy dev environment
         run: make dev-deploy
         env:
           OPERATOR_IMG: ${{ env.OPERATOR_IMG }}
           KIND_CLUSTER_NAME: ${{ env.KIND_CLUSTER_NAME }}
+          DEV_PROFILE: ${{ matrix.dev_profile }}
 
       - name: Run batch-gateway e2e tests
         run: make test-e2e-batch-gateway
         env:
           TEST_APISERVER_URL: "http://localhost:8000"
+          TEST_RUN: "TestE2E/Batches/Lifecycle"
 
       - name: Run operator e2e tests
         run: make test-e2e-operator

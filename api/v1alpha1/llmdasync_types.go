@@ -99,10 +99,18 @@ type AsyncRedisSpec struct {
 
 // AsyncQueueConfig configures a single Redis queue for the async-processor.
 type AsyncQueueConfig struct {
-	// Name identifies this queue configuration.
+	// Name is the Redis sorted-set key for this queue.
+	// Must follow the convention: llm-d-async:requests:<inferencePoolName>
+	// where <inferencePoolName> matches the corresponding modelGateways entry.
+	// The result queue (llm-d-async:results:<inferencePoolName>) is auto-configured by the batch processor.
 	// +kubebuilder:validation:Required
 	// +kubebuilder:validation:MaxLength=253
 	Name string `json:"name"`
+
+	// WorkerPoolID assigns this queue to a named worker pool.
+	// Must match a workerPools[].name entry. Defaults to "default" if omitted.
+	// +kubebuilder:validation:MaxLength=253
+	WorkerPoolID string `json:"workerPoolID,omitempty"`
 
 	// IGWBaseURL overrides the top-level asyncConfig.inferenceGateway URL for this queue.
 	// +kubebuilder:validation:MaxLength=2048

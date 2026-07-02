@@ -13,12 +13,12 @@ KIND_CLUSTER_NAME ?= batch-gateway-dev
 ## The full batch-gateway repo is checked out in $(BATCH_GATEWAY_DIR); the operator uses its chart + e2e tests.
 ## This replaces the old git submodule solution.
 BATCH_GATEWAY_REPO ?= https://github.com/opendatahub-io/batch-gateway.git
-BATCH_GATEWAY_REF  ?= a672735cf19325d646a6ef33270df903cfdcd7cb
+BATCH_GATEWAY_REF  ?= fe4193060f239767a3c40154ef1acdfcbafa9b79
 BATCH_GATEWAY_DIR  ?= batch-gateway
 
 ## Only the async-processor chart is sparse-checked-out from llm-d-async.
 LLM_D_ASYNC_REPO ?= https://github.com/opendatahub-io/llm-d-async.git
-LLM_D_ASYNC_REF  ?= main
+LLM_D_ASYNC_REF  ?= 65c392c5ce4a0284c7b86b85b287d5e5fffda50b
 LLM_D_ASYNC_DIR  ?= llm-d-async
 
 ## Deps
@@ -139,7 +139,7 @@ TEST_RUN ?= TestE2E/Batches/Lifecycle
 
 .PHONY: test-e2e-batch-gateway
 test-e2e-batch-gateway: fetch-batch-gateway
-	cd $(BATCH_GATEWAY_DIR)/test/e2e && go test -v -count=1 -run "$(TEST_RUN)" ./...
+	bash hack/test-e2e-batch-gateway.sh
 
 .PHONY: test-e2e-operator
 test-e2e-operator: dev-deploy
