@@ -86,7 +86,6 @@ type AsyncRedisSpec struct {
 	// +kubebuilder:validation:MaxLength=2048
 	RequestPathURL string `json:"requestPathURL,omitempty"`
 
-
 	// PollIntervalMs is the polling interval in milliseconds for the Redis queue.
 	// +kubebuilder:default=1000
 	// +kubebuilder:validation:Minimum=100

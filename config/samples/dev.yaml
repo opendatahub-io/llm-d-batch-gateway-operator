@@ -20,21 +20,16 @@ spec:
     replicas: 1
     imagePullPolicy: IfNotPresent
     dispatchMode: async
-    # globalInferenceGateway is only used in sync dispatch mode
-    # globalInferenceGateway:
-    #   url: http://vllm-sim.default.svc.cluster.local:8000
-    #   requestTimeout: 5m
-    #   maxRetries: 3
-    #   initialBackoff: 1s
-    #   maxBackoff: 60s
-    modelGateways:
-      vllm-sim:
-        url: http://vllm-sim.default.svc.cluster.local:8000
-        inferencePoolName: vllm-pool
-        requestTimeout: 5m
-        maxRetries: 3
-        initialBackoff: 1s
-        maxBackoff: 60s
+    globalInferenceGateway:
+      url: http://vllm-sim.default.svc:8000
+      requestTimeout: 5m
+      maxRetries: 3
+      initialBackoff: 1s
+      maxBackoff: 60s
+    # TODO: switch to modelGateways once batch-gateway chart supports dispatchMode=async (PR #458)
+    # modelGateways:
+    #   vllm-sim:
+    #     inferencePoolName: vllm-pool
     asyncConfig:
       replicas: 1
       concurrency: 8
@@ -45,25 +40,12 @@ spec:
         requestPathURL: /v1/completions
         pollIntervalMs: 1000
         batchSize: 10
-      # tls: # requires TLS secret 
-      #   secretName: igw-tls-certs
-      #   insecureSkipVerify: false
-      #   caCertKey: ca.crt
-      #   certKey: tls.crt
-      #   keyKey: tls.key
       transformConfig:
         requestTransforms:
         - name: gcs-whisper
           type: gcs_uri_multipart
           parameters:
             providers: '["whisper","faster-whisper"]'
-      # modelServerMonitor: # PodMonitor CRD not available in Kind, comment this block out
-      #   enabled: true
-      #   selector:
-      #     llm-d.ai/role: decode
-      #   port: modelserver
-      #   path: /metrics
-      #   interval: 15s
   gc:
     interval: 30m
     imagePullPolicy: IfNotPresent

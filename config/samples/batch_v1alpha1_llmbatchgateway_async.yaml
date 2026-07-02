@@ -1,13 +1,12 @@
 apiVersion: batch.llm-d.ai/v1alpha1
 kind: LLMBatchGateway
 metadata:
-  name: batch-gateway
+  name: batch-gateway-async
 spec:
-  # Same-namespace secret (most common case):
   secretRef:
     name: batch-gateway-secrets
-  # Cross-namespace secret: uncomment namespace and create a ReferenceGrant in
-  # the secret's namespace (see the example below the LLMBatchGateway manifest).
+  # if the secret is in a different namespace, create a ReferenceGrant in
+  #  the secret's namespace (see the example below the LLMBatchGateway manifest)
   # secretRef:
   #   name: batch-gateway-secrets
   #   namespace: credentials-ns
@@ -16,26 +15,16 @@ spec:
     s3:
       region: us-east-1
       endpoint: https://s3.example.com
-  # Component images are NOT set here. They are pinned by the operator (sourced
-  # from params.env), so the platform controls which images run.
   apiServer:
     replicas: 1
   processor:
     replicas: 1
-    # globalInferenceGateway is only used in sync dispatch mode
-    # globalInferenceGateway:
-    #   url: http://inference-gateway.default.svc:8000
-    #   requestTimeout: 5m
     modelGateways:
       llama-3:
-        url: http://inference-gateway.default.svc:8000
         inferencePoolName: llama-pool
-        requestTimeout: 5m
       whisper-large:
-        url: http://inference-gateway.default.svc:8000
         inferencePoolName: whisper-pool
-        requestTimeout: 10m
-    dispatchMode: async  # set to sync if you do not want to use async-processor
+    dispatchMode: async
     asyncConfig:
       replicas: 1
       concurrency: 8
