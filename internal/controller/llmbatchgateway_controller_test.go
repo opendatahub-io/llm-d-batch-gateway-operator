@@ -59,7 +59,7 @@ func newTestGateway(name string) *batchv1alpha1.LLMBatchGateway {
 func TestReconcile(t *testing.T) {
 	ctx := context.Background()
 
-	helmRenderer, err := NewHelmRenderer("../../batch-gateway/charts/batch-gateway", testImages())
+	batchGWHelmRenderer, err := NewHelmRenderer("../../batch-gateway/charts/batch-gateway", testImages())
 	if err != nil {
 		t.Fatalf("NewHelmRenderer() error: %v", err)
 	}
@@ -68,7 +68,7 @@ func TestReconcile(t *testing.T) {
 	resyncTimeout := 5 * time.Minute
 	reconcileTimeout := 30 * time.Second
 
-	reconciler := NewLLMBatchGatewayReconciler(k8sClient, k8sClient.Scheme(), helmRenderer, fakeRecorder, resyncTimeout, reconcileTimeout)
+	reconciler := NewLLMBatchGatewayReconciler(k8sClient, k8sClient.Scheme(), batchGWHelmRenderer, nil, fakeRecorder, resyncTimeout, reconcileTimeout)
 
 	t.Run("returns RequeueAfter on successful reconcile", func(t *testing.T) {
 		gw := newTestGateway("test-requeue")
@@ -282,8 +282,8 @@ func TestReconcile(t *testing.T) {
 			if !isOwnedByUID(d.OwnerReferences, gw.UID) {
 				continue
 			}
-			component := d.Labels["app.kubernetes.io/component"]
-			if component == "apiserver" {
+			component := d.Labels[labelKeyComponent]
+			if component == componentAPIServer {
 				if d.Spec.Replicas == nil || *d.Spec.Replicas != 3 {
 					replicas := int32(0)
 					if d.Spec.Replicas != nil {
@@ -889,6 +889,132 @@ func TestReconcile(t *testing.T) {
 	})
 }
 
+func newTestAsyncGateway(name string) *batchv1alpha1.LLMBatchGateway {
+	gw := newTestGateway(name)
+	concurrency := int32(8)
+	gw.Spec.Processor.DispatchMode = dispatchModeAsync
+	gw.Spec.Processor.AsyncConfig = &batchv1alpha1.AsyncProcessorSpec{
+		Concurrency:  &concurrency,
+		DrainTimeout: "2m",
+		InferenceGateway: &batchv1alpha1.InferenceGatewaySpec{
+			URL: "http://epp:8081",
+		},
+		Redis: &batchv1alpha1.AsyncRedisSpec{},
+	}
+	return gw
+}
+
+func TestReconcileAsync(t *testing.T) {
+	ctx := context.Background()
+
+	batchGWHelmRenderer, err := NewHelmRenderer("../../batch-gateway/charts/batch-gateway", testImages())
+	if err != nil {
+		t.Fatalf("NewHelmRenderer(batch) error: %v", err)
+	}
+	asyncHelmRenderer, err := NewHelmRenderer("../../llm-d-async/charts/async-processor", testImages())
+	if err != nil {
+		t.Fatalf("NewHelmRenderer(async) error: %v", err)
+	}
+
+	fakeRecorder := record.NewFakeRecorder(100)
+	resyncTimeout := 5 * time.Minute
+	reconcileTimeout := 30 * time.Second
+
+	reconciler := NewLLMBatchGatewayReconciler(k8sClient, k8sClient.Scheme(), batchGWHelmRenderer, asyncHelmRenderer, fakeRecorder, resyncTimeout, reconcileTimeout)
+
+	t.Run("creates async-processor deployment alongside batch resources", func(t *testing.T) {
+		gw := newTestAsyncGateway("test-async-create")
+		if err := k8sClient.Create(ctx, gw); err != nil {
+			t.Fatalf("creating CR: %v", err)
+		}
+		t.Cleanup(func() { _ = k8sClient.Delete(ctx, gw) })
+
+		result, err := reconciler.Reconcile(ctx, reconcile.Request{
+			NamespacedName: types.NamespacedName{Name: gw.Name, Namespace: gw.Namespace},
+		})
+		if err != nil {
+			t.Fatalf("Reconcile() error: %v", err)
+		}
+		if result.RequeueAfter != resyncTimeout {
+			t.Errorf("RequeueAfter = %v, want %v", result.RequeueAfter, resyncTimeout)
+		}
+
+		var deployList appsv1.DeploymentList
+		if err := k8sClient.List(ctx, &deployList); err != nil {
+			t.Fatalf("listing deployments: %v", err)
+		}
+		deployCount := 0
+		hasAsyncProcessor := false
+		for _, d := range deployList.Items {
+			if !isOwnedByUID(d.OwnerReferences, gw.UID) {
+				continue
+			}
+			deployCount++
+			if d.Labels[labelKeyComponent] == componentAsyncProcessor {
+				hasAsyncProcessor = true
+			}
+		}
+		// 3 batch (apiserver, processor, gc) + 1 async-processor = 4
+		if deployCount != 4 {
+			t.Errorf("deployment count = %d, want 4", deployCount)
+		}
+		if !hasAsyncProcessor {
+			t.Error("no async-processor deployment found")
+		}
+	})
+
+	t.Run("sets AsyncProcessorAvailable condition", func(t *testing.T) {
+		gw := newTestAsyncGateway("test-async-condition")
+		if err := k8sClient.Create(ctx, gw); err != nil {
+			t.Fatalf("creating CR: %v", err)
+		}
+		t.Cleanup(func() { _ = k8sClient.Delete(ctx, gw) })
+
+		_, err := reconciler.Reconcile(ctx, reconcile.Request{
+			NamespacedName: types.NamespacedName{Name: gw.Name, Namespace: gw.Namespace},
+		})
+		if err != nil {
+			t.Fatalf("Reconcile() error: %v", err)
+		}
+
+		var updated batchv1alpha1.LLMBatchGateway
+		if err := k8sClient.Get(ctx, types.NamespacedName{Name: gw.Name, Namespace: gw.Namespace}, &updated); err != nil {
+			t.Fatalf("getting updated CR: %v", err)
+		}
+
+		found := false
+		for _, c := range updated.Status.Conditions {
+			if c.Type == conditionAsyncProcessorAvailable {
+				found = true
+				break
+			}
+		}
+		if !found {
+			t.Errorf("missing condition %q", conditionAsyncProcessorAvailable)
+		}
+	})
+
+	t.Run("nil async renderer returns error for async mode", func(t *testing.T) {
+		nilAsyncReconciler := NewLLMBatchGatewayReconciler(k8sClient, k8sClient.Scheme(), batchGWHelmRenderer, nil, fakeRecorder, resyncTimeout, reconcileTimeout)
+
+		gw := newTestAsyncGateway("test-async-nil-renderer")
+		if err := k8sClient.Create(ctx, gw); err != nil {
+			t.Fatalf("creating CR: %v", err)
+		}
+		t.Cleanup(func() { _ = k8sClient.Delete(ctx, gw) })
+
+		_, err := nilAsyncReconciler.Reconcile(ctx, reconcile.Request{
+			NamespacedName: types.NamespacedName{Name: gw.Name, Namespace: gw.Namespace},
+		})
+		if err == nil {
+			t.Fatal("Reconcile() expected error for nil async renderer, got nil")
+		}
+		if !strings.Contains(err.Error(), "async helm renderer") {
+			t.Errorf("error = %v, want mention of async helm renderer", err)
+		}
+	})
+}
+
 func TestConditionHelpers(t *testing.T) {
 	if got := conditionStatus(true); got != metav1.ConditionTrue {
 		t.Errorf("conditionStatus(true) = %v, want True", got)
@@ -939,7 +1065,7 @@ func isOwnedByUID(refs []metav1.OwnerReference, uid types.UID) bool {
 func TestReconcileTimeout(t *testing.T) {
 	ctx := context.Background()
 
-	helmRenderer, err := NewHelmRenderer("../../batch-gateway/charts/batch-gateway", testImages())
+	batchGWHelmRenderer, err := NewHelmRenderer("../../batch-gateway/charts/batch-gateway", testImages())
 	if err != nil {
 		t.Fatalf("NewHelmRenderer() error: %v", err)
 	}
@@ -948,7 +1074,7 @@ func TestReconcileTimeout(t *testing.T) {
 	resyncTimeout := 5 * time.Minute
 	reconcileTimeout := -1 * time.Second
 	// Use a 1ns timeout so the context is expired before the first API call.
-	reconciler := NewLLMBatchGatewayReconciler(k8sClient, k8sClient.Scheme(), helmRenderer, fakeRecorder, resyncTimeout, reconcileTimeout)
+	reconciler := NewLLMBatchGatewayReconciler(k8sClient, k8sClient.Scheme(), batchGWHelmRenderer, nil, fakeRecorder, resyncTimeout, reconcileTimeout)
 
 	gw := newTestGateway("test-timeout")
 	if err := k8sClient.Create(ctx, gw); err != nil {
@@ -1005,7 +1131,7 @@ func findOwnedDeployment(ctx context.Context, t *testing.T, gw *batchv1alpha1.LL
 		if !isOwnedByUID(d.OwnerReferences, gw.UID) {
 			continue
 		}
-		if d.Labels["app.kubernetes.io/component"] == component {
+		if d.Labels[labelKeyComponent] == component {
 			return d
 		}
 	}

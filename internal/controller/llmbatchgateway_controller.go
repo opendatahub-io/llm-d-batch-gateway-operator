@@ -33,10 +33,20 @@ import (
 )
 
 const (
-	conditionReady              = "Ready"
-	conditionAPIServerAvailable = "APIServerAvailable"
-	conditionProcessorAvailable = "ProcessorAvailable"
-	conditionGCAvailable        = "GCAvailable"
+	conditionReady                   = "Ready"
+	conditionAPIServerAvailable      = "APIServerAvailable"
+	conditionProcessorAvailable      = "ProcessorAvailable"
+	conditionGCAvailable             = "GCAvailable"
+	conditionAsyncProcessorAvailable = "AsyncProcessorAvailable"
+
+	dispatchModeAsync = "async"
+
+	labelKeyComponent       = "app.kubernetes.io/component"
+	labelKeyInstance        = "app.kubernetes.io/instance"
+	componentAPIServer      = "apiserver"
+	componentProcessor      = "processor"
+	componentGC             = "gc"
+	componentAsyncProcessor = "async-processor"
 
 	conditionsStatusField         = "conditions"
 	componentStatusField          = "componentStatus"
@@ -82,23 +92,25 @@ var _ reconcile.Reconciler = (*LLMBatchGatewayReconciler)(nil)
 
 type LLMBatchGatewayReconciler struct {
 	client.Client
-	Scheme           *runtime.Scheme
-	HelmRenderer     *HelmRenderer
-	Recorder         record.EventRecorder
-	ReconcileTimeout time.Duration
-	SyncPeriod       time.Duration
-	secretFilter     *secretWatchFilter
+	Scheme              *runtime.Scheme
+	BatchGWHelmRenderer *HelmRenderer
+	AsyncHelmRenderer   *HelmRenderer
+	Recorder            record.EventRecorder
+	ReconcileTimeout    time.Duration
+	SyncPeriod          time.Duration
+	secretFilter        *secretWatchFilter
 }
 
-func NewLLMBatchGatewayReconciler(c client.Client, scheme *runtime.Scheme, helm *HelmRenderer, recorder record.EventRecorder, syncPeriod time.Duration, reconcileTimeout time.Duration) *LLMBatchGatewayReconciler {
+func NewLLMBatchGatewayReconciler(c client.Client, scheme *runtime.Scheme, batchGWHelm *HelmRenderer, asyncHelm *HelmRenderer, recorder record.EventRecorder, syncPeriod time.Duration, reconcileTimeout time.Duration) *LLMBatchGatewayReconciler {
 	return &LLMBatchGatewayReconciler{
-		Client:           c,
-		Scheme:           scheme,
-		HelmRenderer:     helm,
-		Recorder:         recorder,
-		ReconcileTimeout: reconcileTimeout,
-		SyncPeriod:       syncPeriod,
-		secretFilter:     &secretWatchFilter{watched: make(map[string]struct{})},
+		Client:              c,
+		Scheme:              scheme,
+		BatchGWHelmRenderer: batchGWHelm,
+		AsyncHelmRenderer:   asyncHelm,
+		Recorder:            recorder,
+		ReconcileTimeout:    reconcileTimeout,
+		SyncPeriod:          syncPeriod,
+		secretFilter:        &secretWatchFilter{watched: make(map[string]struct{})},
 	}
 }
 
@@ -140,7 +152,18 @@ func (r *LLMBatchGatewayReconciler) reconcile(ctx context.Context, req ctrl.Requ
 
 	if err := validateSpec(&gw); err != nil {
 		gw.Status.ObservedGeneration = gw.Generation
-		for _, condType := range []string{conditionReady, conditionAPIServerAvailable, conditionProcessorAvailable, conditionGCAvailable} {
+		condTypes := []string{
+			conditionReady,
+			conditionAPIServerAvailable,
+			conditionProcessorAvailable,
+			conditionGCAvailable,
+		}
+		if gw.Spec.Processor.DispatchMode == dispatchModeAsync {
+			condTypes = append(condTypes, conditionAsyncProcessorAvailable)
+		} else {
+			meta.RemoveStatusCondition(&gw.Status.Conditions, conditionAsyncProcessorAvailable)
+		}
+		for _, condType := range condTypes {
 			meta.SetStatusCondition(&gw.Status.Conditions, metav1.Condition{
 				Type:               condType,
 				Status:             metav1.ConditionFalse,
@@ -202,7 +225,7 @@ func (r *LLMBatchGatewayReconciler) reconcile(ctx context.Context, req ctrl.Requ
 		r.secretFilter.add(ref.Namespace, ref.Name)
 	}
 
-	objects, err := r.HelmRenderer.RenderChart(&gw, localSecretName)
+	batchObjects, err := r.BatchGWHelmRenderer.RenderBatchChart(&gw, localSecretName)
 	if err != nil {
 		gw.Status.ObservedGeneration = gw.Generation
 		meta.SetStatusCondition(&gw.Status.Conditions, metav1.Condition{
@@ -212,17 +235,44 @@ func (r *LLMBatchGatewayReconciler) reconcile(ctx context.Context, req ctrl.Requ
 			Message:            err.Error(),
 			ObservedGeneration: gw.Generation,
 		})
-		r.Recorder.Eventf(&gw, corev1.EventTypeWarning, "RenderFailed", "Helm chart render failed: %s", err)
+		r.Recorder.Eventf(&gw, corev1.EventTypeWarning, "RenderFailed", "Batch-gateway chart render failed: %s", err)
 		if statusErr := NewStatusPatch(gw.ResourceVersion).
 			Add(conditionsStatusField, gw.Status.Conditions).
 			Add(observedGenerationStatusField, gw.Status.ObservedGeneration).
 			Apply(ctx, r.Client, &gw); statusErr != nil {
-			return ctrl.Result{}, fmt.Errorf("rendering chart: %w; also failed to patch status: %w", err, statusErr)
+			return ctrl.Result{}, fmt.Errorf("rendering batch-gateway chart: %w; failed to patch status: %w", err, statusErr)
 		}
-		return ctrl.Result{}, fmt.Errorf("rendering chart: %w", err)
+		return ctrl.Result{}, fmt.Errorf("rendering batch-gateway chart: %w", err)
 	}
 
-	for _, obj := range objects {
+	if gw.Spec.Processor.DispatchMode == dispatchModeAsync && gw.Spec.Processor.AsyncConfig != nil {
+		if r.AsyncHelmRenderer == nil {
+			return ctrl.Result{}, errors.New("async dispatch mode requires an async helm renderer, but none was configured")
+		}
+		asyncObjects, err := r.AsyncHelmRenderer.RenderAsyncChart(&gw, localSecretName)
+		if err != nil {
+			gw.Status.ObservedGeneration = gw.Generation
+			meta.SetStatusCondition(&gw.Status.Conditions, metav1.Condition{
+				Type:               conditionReady,
+				Status:             metav1.ConditionFalse,
+				Reason:             "RenderFailed",
+				Message:            err.Error(),
+				ObservedGeneration: gw.Generation,
+			})
+			r.Recorder.Eventf(&gw, corev1.EventTypeWarning, "RenderFailed", "Async chart render failed: %s", err)
+			if statusErr := NewStatusPatch(gw.ResourceVersion).
+				Add(conditionsStatusField, gw.Status.Conditions).
+				Add(observedGenerationStatusField, gw.Status.ObservedGeneration).
+				Apply(ctx, r.Client, &gw); statusErr != nil {
+				return ctrl.Result{}, fmt.Errorf("rendering async chart: %w; failed to patch status: %w", err, statusErr)
+			}
+			return ctrl.Result{}, fmt.Errorf("rendering async chart: %w", err)
+		}
+		batchObjects = append(batchObjects, asyncObjects...)
+	}
+
+	allObjects := batchObjects
+	for _, obj := range allObjects {
 		obj.SetNamespace(gw.Namespace)
 
 		if err := controllerutil.SetControllerReference(&gw, obj, r.Scheme); err != nil {
@@ -240,7 +290,7 @@ func (r *LLMBatchGatewayReconciler) reconcile(ctx context.Context, req ctrl.Requ
 		logger.V(2).Info("applied resource", "kind", obj.GetKind(), "name", obj.GetName())
 	}
 
-	if err := r.deleteOrphanedResources(ctx, &gw, objects); err != nil {
+	if err := r.deleteOrphanedResources(ctx, &gw, allObjects); err != nil {
 		return ctrl.Result{}, fmt.Errorf("deleting orphaned resources: %w", err)
 	}
 
@@ -318,7 +368,7 @@ func (r *LLMBatchGatewayReconciler) deleteOrphanedResources(
 func (r *LLMBatchGatewayReconciler) updateStatus(ctx context.Context, gw *batchv1alpha1.LLMBatchGateway) error {
 	var deployments appsv1.DeploymentList
 	if err := r.List(ctx, &deployments, client.InNamespace(gw.Namespace), client.MatchingLabels{
-		"app.kubernetes.io/instance": gw.Name,
+		labelKeyInstance: gw.Name,
 	}); err != nil {
 		return fmt.Errorf("listing deployments: %w", err)
 	}
@@ -330,7 +380,7 @@ func (r *LLMBatchGatewayReconciler) updateStatus(ctx context.Context, gw *batchv
 			continue
 		}
 
-		component, ok := d.Labels["app.kubernetes.io/component"]
+		component, ok := d.Labels[labelKeyComponent]
 		if !ok {
 			continue
 		}
@@ -341,12 +391,14 @@ func (r *LLMBatchGatewayReconciler) updateStatus(ctx context.Context, gw *batchv
 		}
 
 		switch component {
-		case "apiserver":
+		case componentAPIServer:
 			componentStatus.APIServer = status
-		case "processor":
+		case componentProcessor:
 			componentStatus.Processor = status
-		case "gc":
+		case componentGC:
 			componentStatus.GC = status
+		case componentAsyncProcessor:
+			componentStatus.AsyncProcessor = status
 		}
 	}
 
@@ -380,7 +432,21 @@ func (r *LLMBatchGatewayReconciler) updateStatus(ctx context.Context, gw *batchv
 		ObservedGeneration: gw.Generation,
 	})
 
-	ready := apiAvailable && procAvailable && gcAvailable
+	asyncAvailable := true
+	if gw.Spec.Processor.DispatchMode != dispatchModeAsync { // when sync we still treat available as true
+		meta.RemoveStatusCondition(&gw.Status.Conditions, conditionAsyncProcessorAvailable)
+	} else {
+		asyncAvailable = componentStatus.AsyncProcessor != nil && componentStatus.AsyncProcessor.ReadyReplicas >= 1 // TODO: refactor this with all other 3, should only mark ready when all replica ready
+		meta.SetStatusCondition(&gw.Status.Conditions, metav1.Condition{
+			Type:               conditionAsyncProcessorAvailable,
+			Status:             conditionStatus(asyncAvailable),
+			Reason:             conditionReason(asyncAvailable, "Available", "Unavailable"),
+			Message:            conditionMessage(asyncAvailable, "Async processor has at least one ready replica", "Async processor has no ready replicas"),
+			ObservedGeneration: gw.Generation,
+		})
+	}
+
+	ready := apiAvailable && procAvailable && gcAvailable && asyncAvailable
 
 	// Snapshot the previous Ready condition before overwriting it so we can
 	// detect transitions and emit an event only when the state changes.
@@ -561,6 +627,9 @@ func validateSpec(gw *batchv1alpha1.LLMBatchGateway) error {
 	}
 	if hasGlobal && hasModel {
 		return errors.New("processor cannot have both globalInferenceGateway and modelGateways configured")
+	}
+	if gw.Spec.Processor.DispatchMode == dispatchModeAsync && gw.Spec.Processor.AsyncConfig == nil {
+		return errors.New("asyncConfig is required when spec.processor.dispatchMode set to \"async\"")
 	}
 	return nil
 }

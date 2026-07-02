@@ -111,9 +111,9 @@ func testCRDeletionCleanup(t *testing.T) {
 		resource string
 		minCount int
 	}{
-		{resource: "deployment", minCount: 3},
+		{resource: "deployment", minCount: 4},  // keep this updated with whats deployed via dev.yaml
 		{resource: "service", minCount: 1},
-		{resource: "configmap", minCount: 3},
+		{resource: "configmap", minCount: 4},
 	} {
 		items := waitForResourceCountAtLeast(t, tc.resource, testNamespace, selector, tc.minCount, 120*time.Second)
 		for _, item := range items {

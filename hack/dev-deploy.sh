@@ -245,7 +245,7 @@ deploy_operator() {
     IMG="${OPERATOR_IMG}" make deploy
 
     # override the env vars on the deployment to pin the images dev wants (defaults read from params.env.
-    step "Setting 3 component images on the operator deployment as env variable..."
+    step "Setting 4 component images on the operator deployment as env variable..."
     kubectl set env deployment/llm-d-batch-gateway-operator -n "${OPERATOR_NAMESPACE}" \
         LLM_D_BATCH_GATEWAY_APISERVER_IMAGE="${APISERVER_IMG}" \
         LLM_D_BATCH_GATEWAY_PROCESSOR_IMAGE="${PROCESSOR_IMG}" \

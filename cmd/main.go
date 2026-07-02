@@ -84,14 +84,16 @@ func init() {
 }
 
 func main() {
-	var chartPath string
+	var batchGatewayChartPath string
+	var asyncChartPath string
 	var metricsAddr string
 	var probeAddr string
 	var enableLeaderElection bool
 	var syncPeriod time.Duration
 	var reconcileTimeout time.Duration
 
-	flag.StringVar(&chartPath, "chart-path", "/charts/batch-gateway", "Path to the batch-gateway Helm chart directory")
+	flag.StringVar(&batchGatewayChartPath, "batch-gateway-chart-path", "/charts/batch-gateway", "Path to the batch-gateway Helm chart directory")
+	flag.StringVar(&asyncChartPath, "async-chart-path", "/charts/async-processor", "Path to the async-processor Helm chart directory")
 	flag.StringVar(&metricsAddr, "metrics-bind-address", ":8443", "Address the metrics endpoint binds to")
 	flag.StringVar(&probeAddr, "health-probe-bind-address", ":8081", "Address the health probe endpoint binds to")
 	flag.BoolVar(&enableLeaderElection, "leader-elect", false, "Enable leader election for controller manager")
@@ -124,15 +126,25 @@ func main() {
 		os.Exit(1)
 	}
 
-	helmRenderer, err := controller.NewHelmRenderer(chartPath, images)
+	batchGWHelmRenderer, err := controller.NewHelmRenderer(batchGatewayChartPath, images)
 	if err != nil {
-		logger.Error(err, "unable to create helm renderer", "chartPath", chartPath)
+		logger.Error(err, "unable to create batch-gateway helm renderer", "batchGatewayChartPath", batchGatewayChartPath)
+		os.Exit(1)
+	}
+
+	asyncHelmRenderer, err := controller.NewHelmRenderer(asyncChartPath, images)
+	if err != nil {
+		logger.Error(err, "unable to create async helm renderer", "asyncChartPath", asyncChartPath)
 		os.Exit(1)
 	}
 
 	recorder := mgr.GetEventRecorderFor("llmbatchgateway-controller") //nolint:staticcheck
 
-	if err := controller.NewLLMBatchGatewayReconciler(mgr.GetClient(), mgr.GetScheme(), helmRenderer, recorder, syncPeriod, reconcileTimeout).SetupWithManager(mgr); err != nil {
+	if err := controller.NewLLMBatchGatewayReconciler(
+		mgr.GetClient(), mgr.GetScheme(),
+		batchGWHelmRenderer, asyncHelmRenderer,
+		recorder, syncPeriod, reconcileTimeout,
+	).SetupWithManager(mgr); err != nil {
 		logger.Error(err, "unable to create controller", "controller", "LLMBatchGateway")
 		os.Exit(1)
 	}

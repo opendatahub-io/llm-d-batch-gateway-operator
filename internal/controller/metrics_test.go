@@ -20,11 +20,11 @@ import (
 func TestReconcileErrorMetricIncrement(t *testing.T) {
 	ctx := context.Background()
 
-	helmRenderer, err := NewHelmRenderer("../../batch-gateway/charts/batch-gateway", testImages())
+	batchGWHelmRenderer, err := NewHelmRenderer("../../batch-gateway/charts/batch-gateway", testImages())
 	if err != nil {
 		t.Fatalf("NewHelmRenderer() error: %v", err)
 	}
-	reconciler := NewLLMBatchGatewayReconciler(k8sClient, k8sClient.Scheme(), helmRenderer, record.NewFakeRecorder(10), 5*time.Minute, 30*time.Second)
+	reconciler := NewLLMBatchGatewayReconciler(k8sClient, k8sClient.Scheme(), batchGWHelmRenderer, nil, record.NewFakeRecorder(10), 5*time.Minute, 30*time.Second)
 
 	// Create a ReferenceGrant permitting access to the secret namespace but do NOT
 	// create the actual secret — resolveSecret will fail with a transient (non-nil)
