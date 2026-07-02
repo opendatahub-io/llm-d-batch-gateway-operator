@@ -625,13 +625,23 @@ spec:
                                   pattern: ^https?://.+$
                                   type: string
                                 name:
-                                  description: Name identifies this queue configuration.
+                                  description: |-
+                                    Name is the Redis sorted-set key for this queue.
+                                    Must follow the convention: llm-d-async:requests:<inferencePoolName>
+                                    where <inferencePoolName> matches the corresponding modelGateways entry.
+                                    The result queue (llm-d-async:results:<inferencePoolName>) is auto-configured by the batch processor.
                                   maxLength: 253
                                   type: string
                                 requestPathURL:
                                   description: RequestPathURL overrides the request
                                     path for this queue.
                                   maxLength: 2048
+                                  type: string
+                                workerPoolID:
+                                  description: |-
+                                    WorkerPoolID assigns this queue to a named worker pool.
+                                    Must match a workerPools[].name entry. Defaults to "default" if omitted.
+                                  maxLength: 253
                                   type: string
                               required:
                               - name

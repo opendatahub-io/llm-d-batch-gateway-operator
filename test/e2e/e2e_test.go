@@ -107,13 +107,20 @@ func testCRDeletionCleanup(t *testing.T) {
 	cr := kubectlGetJSON(t, llmBatchGatewayKind, tempCRName, testNamespace)
 	ownerUID := getObjectUID(t, cr)
 
+	// async mode deploys 4 deployments/configmaps (includes async-processor), sync deploys 3
+	minDeployments := 3
+	minConfigmaps := 3
+	if isAsyncMode(t, testCRName, testNamespace) {
+		minDeployments = 4
+		minConfigmaps = 4
+	}
 	for _, tc := range []struct {
 		resource string
 		minCount int
 	}{
-		{resource: "deployment", minCount: 4},  // keep this updated with whats deployed via dev.yaml
+		{resource: "deployment", minCount: minDeployments},
 		{resource: "service", minCount: 1},
-		{resource: "configmap", minCount: 4},
+		{resource: "configmap", minCount: minConfigmaps},
 	} {
 		items := waitForResourceCountAtLeast(t, tc.resource, testNamespace, selector, tc.minCount, 120*time.Second)
 		for _, item := range items {
