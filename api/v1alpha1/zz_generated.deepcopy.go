@@ -890,6 +890,11 @@ func (in *ProcessorSpec) DeepCopyInto(out *ProcessorSpec) {
 		*out = new(v1.ResourceRequirements)
 		(*in).DeepCopyInto(*out)
 	}
+	if in.Config != nil {
+		in, out := &in.Config, &out.Config
+		*out = new(ProcessorConfigSpec)
+		(*in).DeepCopyInto(*out)
+	}
 	if in.GlobalInferenceGateway != nil {
 		in, out := &in.GlobalInferenceGateway, &out.GlobalInferenceGateway
 		*out = new(InferenceGatewaySpec)
@@ -901,11 +906,6 @@ func (in *ProcessorSpec) DeepCopyInto(out *ProcessorSpec) {
 		for key, val := range *in {
 			(*out)[key] = *val.DeepCopy()
 		}
-	}
-	if in.Config != nil {
-		in, out := &in.Config, &out.Config
-		*out = new(ProcessorConfigSpec)
-		(*in).DeepCopyInto(*out)
 	}
 	if in.AsyncConfig != nil {
 		in, out := &in.AsyncConfig, &out.AsyncConfig

@@ -66,8 +66,6 @@ func specToAsyncHelmValues(gw *batchv1alpha1.LLMBatchGateway, secretName string,
 			"secretName": secretName,
 			"secretKey":  "redis-url",
 		}
-		setIfNotEmpty(redis, "requestQueueName", ac.Redis.RequestQueueName)
-		setIfNotEmpty(redis, "resultQueueName", ac.Redis.ResultQueueName)
 		setIfNotEmpty(redis, "requestPathURL", ac.Redis.RequestPathURL)
 		if ac.Redis.PollIntervalMs != nil {
 			redis["pollIntervalMs"] = int64(*ac.Redis.PollIntervalMs)
@@ -86,8 +84,6 @@ func specToAsyncHelmValues(gw *batchv1alpha1.LLMBatchGateway, secretName string,
 					"id": q.Name,
 				}
 				setIfNotEmpty(qm, "igw_base_url", q.IGWBaseURL)
-				setIfNotEmpty(qm, "queue_name", q.RequestQueueName)
-				setIfNotEmpty(qm, "result_queue_name", q.ResultQueueName)
 				setIfNotEmpty(qm, "request_path_url", q.RequestPathURL)
 				setIfNotEmpty(qm, "gate_type", q.GateType)
 				if len(q.GateParams) > 0 {

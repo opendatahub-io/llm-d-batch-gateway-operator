@@ -274,27 +274,28 @@ type ProcessorSpec struct {
 	// +kubebuilder:validation:Enum=Always;Never;IfNotPresent
 	ImagePullPolicy corev1.PullPolicy `json:"imagePullPolicy,omitempty"`
 
-	// GlobalInferenceGateway is the default inference gateway used for all models
-	// unless overridden by a ModelGateways entry.
-	GlobalInferenceGateway *InferenceGatewaySpec `json:"globalInferenceGateway,omitempty"`
-
-	// ModelGateways maps model names to per-model inference gateway configurations,
-	// overriding GlobalInferenceGateway for those models.
-	ModelGateways map[string]InferenceGatewaySpec `json:"modelGateways,omitempty"`
-
 	// Config holds fine-grained processor configuration.
 	Config *ProcessorConfigSpec `json:"config,omitempty"`
 
-	// DispatchMode enable how batch requests are dispatched to inference backends.
-	// - "sync" (default) sends requests directly via HTTP
-	// - "async" deploys async-processor that dispatches via a message queue.
-	// Toggle between "sync" and "async" can keep asyncConfig block intact.
+	// DispatchMode controls how batch requests are dispatched to inference backends.
+	// - "sync" (default) sends requests directly via HTTP.
+	// - "async" deploys an async-processor that dispatches via a message queue.
 	// +kubebuilder:validation:Enum=sync;async
 	// +kubebuilder:default=sync
 	DispatchMode string `json:"dispatchMode,omitempty"` // TODO: should switch default to async ?
 
+	// GlobalInferenceGateway is the default inference gateway used for all models
+	// unless overridden by a ModelGateways entry.
+	// Not supported when dispatchMode is "async"; use modelGateways with inferencePoolName instead.
+	GlobalInferenceGateway *InferenceGatewaySpec `json:"globalInferenceGateway,omitempty"`
+
+	// ModelGateways maps model names to per-model inference gateway configurations.
+	// In sync mode, overrides GlobalInferenceGateway for the listed models.
+	// In async mode, this is required and each entry must include an inferencePoolName.
+	ModelGateways map[string]InferenceGatewaySpec `json:"modelGateways,omitempty"`
+
 	// AsyncConfig configures the async-processor deployment.
-	// Only takes effect when DispatchMode is "async" mode
+	// Required when dispatchMode is "async".
 	// +optional
 	AsyncConfig *AsyncProcessorSpec `json:"asyncConfig,omitempty"`
 }
@@ -303,10 +304,15 @@ type ProcessorSpec struct {
 // +kubebuilder:validation:XValidation:rule="!has(self.tlsInsecureSkipVerify) || !self.tlsInsecureSkipVerify",message="tlsInsecureSkipVerify is not allowed; configure trusted CA certificates instead"
 type InferenceGatewaySpec struct {
 	// URL is the base URL of the inference gateway (e.g. "http://gateway.svc:8000").
-	// +kubebuilder:validation:Required
+	// Required when dispatchMode is set to 'sync'.
 	// +kubebuilder:validation:MaxLength=2048
 	// +kubebuilder:validation:Pattern=`^https?://.+$`
-	URL string `json:"url"`
+	URL string `json:"url,omitempty"`
+
+	// InferencePoolName identifies the async dispatch pool for this model.
+	// Required when dispatchMode is set to 'async'.
+	// +kubebuilder:validation:MaxLength=253
+	InferencePoolName string `json:"inferencePoolName,omitempty"`
 
 	// RequestTimeout is the maximum time to wait for a single inference response (e.g. "5m").
 	// +kubebuilder:validation:Pattern=`^([0-9]+(\.[0-9]+)?(ms|s|m|h))+$`
@@ -404,6 +410,15 @@ type ProcessorConfigSpec struct {
 
 	// ProgressTTLSeconds is how long in-progress job state is retained before being considered stale.
 	ProgressTTLSeconds int64 `json:"progressTTLSeconds,omitempty"`
+
+	// AsyncDispatchResultPollTimeout is the maximum time the processor waits for
+	// an async dispatch result before timing out (e.g. "30s").
+	// Only takes effect when dispatchMode is "async".
+	// TODO: need add logic in helm values; pass as processor.config.asyncDispatch.resultPollTimeout
+	// once the batch-gateway chart supports it.
+	// +kubebuilder:validation:Pattern=`^([0-9]+(\.[0-9]+)?(ms|s|m|h))+$`
+	// +kubebuilder:validation:MaxLength=32
+	AsyncDispatchResultPollTimeout string `json:"asyncDispatchResultPollTimeout,omitempty"`
 
 	// EnablePprof enables the Go pprof profiling HTTP endpoints.
 	EnablePprof bool `json:"enablePprof,omitempty"`

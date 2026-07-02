@@ -81,18 +81,11 @@ type AsyncProcessorSpec struct {
 // AsyncRedisSpec configures the Redis message queue backend for the async-processor.
 // Presence of this field (non-nil pointer) enables Redis as the message queue backend.
 type AsyncRedisSpec struct {
-	// RequestQueueName is the Redis key used for the request queue.
-	// +kubebuilder:default="request-sortedset"
-	RequestQueueName string `json:"requestQueueName,omitempty"`
-
-	// ResultQueueName is the Redis key used for the result queue.
-	// +kubebuilder:default="result-list"
-	ResultQueueName string `json:"resultQueueName,omitempty"`
-
 	// RequestPathURL is the path appended to the inference gateway URL for requests.
 	// +kubebuilder:default="/v1/completions"
 	// +kubebuilder:validation:MaxLength=2048
 	RequestPathURL string `json:"requestPathURL,omitempty"`
+
 
 	// PollIntervalMs is the polling interval in milliseconds for the Redis queue.
 	// +kubebuilder:default=1000
@@ -112,7 +105,7 @@ type AsyncRedisSpec struct {
 	GateParams map[string]string `json:"gateParams,omitempty"`
 
 	// QueuesConfig is a list of per-queue configurations.
-	// When set, overrides the single-queue settings (RequestQueueName, ResultQueueName, etc.).
+	// When set, overrides the single-queue settings (RequestPathURL, GateType, etc.).
 	// +optional
 	QueuesConfig []AsyncQueueConfig `json:"queuesConfig,omitempty"`
 }
@@ -124,18 +117,10 @@ type AsyncQueueConfig struct {
 	// +kubebuilder:validation:MaxLength=253
 	Name string `json:"name"`
 
-	// IGWBaseURL overrides the global inference gateway URL for this queue.
+	// IGWBaseURL overrides the top-level asyncConfig.inferenceGateway URL for this queue.
 	// +kubebuilder:validation:MaxLength=2048
 	// +kubebuilder:validation:Pattern=`^https?://.+$`
 	IGWBaseURL string `json:"igwBaseURL,omitempty"`
-
-	// RequestQueueName overrides the Redis key for this queue's requests.
-	// +kubebuilder:validation:MaxLength=253
-	RequestQueueName string `json:"requestQueueName,omitempty"`
-
-	// ResultQueueName overrides the Redis key for this queue's results.
-	// +kubebuilder:validation:MaxLength=253
-	ResultQueueName string `json:"resultQueueName,omitempty"`
 
 	// RequestPathURL overrides the request path for this queue.
 	// +kubebuilder:validation:MaxLength=2048

@@ -23,9 +23,18 @@ spec:
   processor:
     replicas: 1
     # globalInferenceGateway is only used in sync dispatch mode
-    globalInferenceGateway:
-      url: http://inference-gateway.default.svc:8000
-      requestTimeout: 5m
+    # globalInferenceGateway:
+    #   url: http://inference-gateway.default.svc:8000
+    #   requestTimeout: 5m
+    modelGateways:
+      llama-3:
+        url: http://inference-gateway.default.svc:8000
+        inferencePoolName: llama-pool
+        requestTimeout: 5m
+      whisper-large:
+        url: http://inference-gateway.default.svc:8000
+        inferencePoolName: whisper-pool
+        requestTimeout: 10m
     dispatchMode: async  # set to sync if you do not want to use async-processor
     asyncConfig:
       replicas: 1
@@ -34,8 +43,6 @@ spec:
       inferenceGateway:
         url: http://epp.default.svc:8081
       redis:
-        requestQueueName: request-sortedset
-        resultQueueName: result-list
         requestPathURL: /v1/completions
         pollIntervalMs: 1000
         batchSize: 10

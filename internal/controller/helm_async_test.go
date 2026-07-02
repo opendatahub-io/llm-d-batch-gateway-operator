@@ -16,10 +16,7 @@ func minimalAsyncGateway() *batchv1alpha1.LLMBatchGateway {
 		InferenceGateway: &batchv1alpha1.InferenceGatewaySpec{
 			URL: "http://epp:8081",
 		},
-		Redis: &batchv1alpha1.AsyncRedisSpec{
-			RequestQueueName: "request-sortedset",
-			ResultQueueName:  "result-sortedset",
-		},
+		Redis: &batchv1alpha1.AsyncRedisSpec{},
 	}
 	return gw
 }
@@ -72,12 +69,6 @@ func TestSpecToAsyncHelmValues(t *testing.T) {
 		}
 		if got := redis["secretKey"]; got != "redis-url" {
 			t.Errorf("redis.secretKey = %v, want redis-url", got)
-		}
-		if got := redis["requestQueueName"]; got != "request-sortedset" {
-			t.Errorf("redis.requestQueueName = %v, want request-sortedset", got)
-		}
-		if got := redis["resultQueueName"]; got != "result-sortedset" {
-			t.Errorf("redis.resultQueueName = %v, want result-sortedset", got)
 		}
 	})
 }

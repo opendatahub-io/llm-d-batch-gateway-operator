@@ -19,14 +19,22 @@ spec:
   processor:
     replicas: 1
     imagePullPolicy: IfNotPresent
-    # globalInferenceGateway is only used in sync dispatch mode
-    globalInferenceGateway:
-      url: http://vllm-sim.default.svc.cluster.local:8000
-      requestTimeout: 5m
-      maxRetries: 3
-      initialBackoff: 1s
-      maxBackoff: 60s
     dispatchMode: async
+    # globalInferenceGateway is only used in sync dispatch mode
+    # globalInferenceGateway:
+    #   url: http://vllm-sim.default.svc.cluster.local:8000
+    #   requestTimeout: 5m
+    #   maxRetries: 3
+    #   initialBackoff: 1s
+    #   maxBackoff: 60s
+    modelGateways:
+      vllm-sim:
+        url: http://vllm-sim.default.svc.cluster.local:8000
+        inferencePoolName: vllm-pool
+        requestTimeout: 5m
+        maxRetries: 3
+        initialBackoff: 1s
+        maxBackoff: 60s
     asyncConfig:
       replicas: 1
       concurrency: 8
@@ -34,8 +42,6 @@ spec:
       inferenceGateway:
         url: http://epp.default.svc:8081
       redis:
-        requestQueueName: request-sortedset
-        resultQueueName: result-list
         requestPathURL: /v1/completions
         pollIntervalMs: 1000
         batchSize: 10

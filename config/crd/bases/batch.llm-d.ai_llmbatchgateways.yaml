@@ -450,7 +450,7 @@ spec:
                   asyncConfig:
                     description: |-
                       AsyncConfig configures the async-processor deployment.
-                      Only takes effect when DispatchMode is "async" mode
+                      Required when dispatchMode is "async".
                     properties:
                       concurrency:
                         default: 8
@@ -549,6 +549,12 @@ spec:
                           InferenceGateway configures the connection to the inference gateway
                           EPP (EndpointPicker) service where inference requests are sent.
                         properties:
+                          inferencePoolName:
+                            description: |-
+                              InferencePoolName identifies the async dispatch pool for this model.
+                              Required when dispatchMode is set to 'async'.
+                            maxLength: 253
+                            type: string
                           initialBackoff:
                             description: InitialBackoff is the wait duration before
                               the first retry (e.g. "500ms").
@@ -592,13 +598,12 @@ spec:
                               verification. Not recommended for production.
                             type: boolean
                           url:
-                            description: URL is the base URL of the inference gateway
-                              (e.g. "http://gateway.svc:8000").
+                            description: |-
+                              URL is the base URL of the inference gateway (e.g. "http://gateway.svc:8000").
+                              Required when dispatchMode is set to 'sync'.
                             maxLength: 2048
                             pattern: ^https?://.+$
                             type: string
-                        required:
-                        - url
                         type: object
                         x-kubernetes-validations:
                         - message: tlsInsecureSkipVerify is not allowed; configure
@@ -682,7 +687,7 @@ spec:
                           queuesConfig:
                             description: |-
                               QueuesConfig is a list of per-queue configurations.
-                              When set, overrides the single-queue settings (RequestQueueName, ResultQueueName, etc.).
+                              When set, overrides the single-queue settings (RequestPathURL, GateType, etc.).
                             items:
                               description: AsyncQueueConfig configures a single Redis
                                 queue for the async-processor.
@@ -699,8 +704,8 @@ spec:
                                   maxLength: 253
                                   type: string
                                 igwBaseURL:
-                                  description: IGWBaseURL overrides the global inference
-                                    gateway URL for this queue.
+                                  description: IGWBaseURL overrides the top-level
+                                    asyncConfig.inferenceGateway URL for this queue.
                                   maxLength: 2048
                                   pattern: ^https?://.+$
                                   type: string
@@ -713,16 +718,6 @@ spec:
                                     path for this queue.
                                   maxLength: 2048
                                   type: string
-                                requestQueueName:
-                                  description: RequestQueueName overrides the Redis
-                                    key for this queue's requests.
-                                  maxLength: 253
-                                  type: string
-                                resultQueueName:
-                                  description: ResultQueueName overrides the Redis
-                                    key for this queue's results.
-                                  maxLength: 253
-                                  type: string
                               required:
                               - name
                               type: object
@@ -732,16 +727,6 @@ spec:
                             description: RequestPathURL is the path appended to the
                               inference gateway URL for requests.
                             maxLength: 2048
-                            type: string
-                          requestQueueName:
-                            default: request-sortedset
-                            description: RequestQueueName is the Redis key used for
-                              the request queue.
-                            type: string
-                          resultQueueName:
-                            default: result-list
-                            description: ResultQueueName is the Redis key used for
-                              the result queue.
                             type: string
                         type: object
                       replicas:
@@ -897,6 +882,15 @@ spec:
                   config:
                     description: Config holds fine-grained processor configuration.
                     properties:
+                      asyncDispatchResultPollTimeout:
+                        description: |-
+                          AsyncDispatchResultPollTimeout is the maximum time the processor waits for
+                          an async dispatch result before timing out (e.g. "30s").
+                          Only takes effect when dispatchMode is "async".
+                          once the batch-gateway chart supports it.
+                        maxLength: 32
+                        pattern: ^([0-9]+(\.[0-9]+)?(ms|s|m|h))+$
+                        type: string
                       concurrency:
                         description: Concurrency groups all dispatch-rate and concurrency
                           control knobs.
@@ -990,10 +984,9 @@ spec:
                   dispatchMode:
                     default: sync
                     description: |-
-                      DispatchMode enable how batch requests are dispatched to inference backends.
-                      - "sync" (default) sends requests directly via HTTP
-                      - "async" deploys async-processor that dispatches via a message queue.
-                      Toggle between "sync" and "async" can keep asyncConfig block intact.
+                      DispatchMode controls how batch requests are dispatched to inference backends.
+                      - "sync" (default) sends requests directly via HTTP.
+                      - "async" deploys an async-processor that dispatches via a message queue.
                     enum:
                     - sync
                     - async
@@ -1002,7 +995,14 @@ spec:
                     description: |-
                       GlobalInferenceGateway is the default inference gateway used for all models
                       unless overridden by a ModelGateways entry.
+                      Not supported when dispatchMode is "async"; use modelGateways with inferencePoolName instead.
                     properties:
+                      inferencePoolName:
+                        description: |-
+                          InferencePoolName identifies the async dispatch pool for this model.
+                          Required when dispatchMode is set to 'async'.
+                        maxLength: 253
+                        type: string
                       initialBackoff:
                         description: InitialBackoff is the wait duration before the
                           first retry (e.g. "500ms").
@@ -1046,13 +1046,12 @@ spec:
                           verification. Not recommended for production.
                         type: boolean
                       url:
-                        description: URL is the base URL of the inference gateway
-                          (e.g. "http://gateway.svc:8000").
+                        description: |-
+                          URL is the base URL of the inference gateway (e.g. "http://gateway.svc:8000").
+                          Required when dispatchMode is set to 'sync'.
                         maxLength: 2048
                         pattern: ^https?://.+$
                         type: string
-                    required:
-                    - url
                     type: object
                     x-kubernetes-validations:
                     - message: tlsInsecureSkipVerify is not allowed; configure trusted
@@ -1072,6 +1071,12 @@ spec:
                       description: InferenceGatewaySpec configures a connection to
                         an inference gateway.
                       properties:
+                        inferencePoolName:
+                          description: |-
+                            InferencePoolName identifies the async dispatch pool for this model.
+                            Required when dispatchMode is set to 'async'.
+                          maxLength: 253
+                          type: string
                         initialBackoff:
                           description: InitialBackoff is the wait duration before
                             the first retry (e.g. "500ms").
@@ -1115,21 +1120,21 @@ spec:
                             verification. Not recommended for production.
                           type: boolean
                         url:
-                          description: URL is the base URL of the inference gateway
-                            (e.g. "http://gateway.svc:8000").
+                          description: |-
+                            URL is the base URL of the inference gateway (e.g. "http://gateway.svc:8000").
+                            Required when dispatchMode is set to 'sync'.
                           maxLength: 2048
                           pattern: ^https?://.+$
                           type: string
-                      required:
-                      - url
                       type: object
                       x-kubernetes-validations:
                       - message: tlsInsecureSkipVerify is not allowed; configure trusted
                           CA certificates instead
                         rule: '!has(self.tlsInsecureSkipVerify) || !self.tlsInsecureSkipVerify'
                     description: |-
-                      ModelGateways maps model names to per-model inference gateway configurations,
-                      overriding GlobalInferenceGateway for those models.
+                      ModelGateways maps model names to per-model inference gateway configurations.
+                      In sync mode, overrides GlobalInferenceGateway for the listed models.
+                      In async mode, this is required and each entry must include an inferencePoolName.
                     type: object
                   replicas:
                     default: 1

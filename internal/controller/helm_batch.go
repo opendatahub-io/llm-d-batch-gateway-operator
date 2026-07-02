@@ -187,6 +187,8 @@ func specToBatchHelmValues(gw *batchv1alpha1.LLMBatchGateway, secretName string,
 	}
 
 	procConfig := map[string]any{}
+	// TODO: ignored by the chart now, wait batch-gateway add async dispatch support
+	setIfNotEmpty(procConfig, "dispatchMode", gw.Spec.Processor.DispatchMode)
 	if gw.Spec.Processor.GlobalInferenceGateway != nil {
 		procConfig["globalInferenceGateway"] = inferenceGatewayToMap(gw.Spec.Processor.GlobalInferenceGateway)
 	}
@@ -296,9 +298,10 @@ func specToBatchHelmValues(gw *batchv1alpha1.LLMBatchGateway, secretName string,
 }
 
 func inferenceGatewayToMap(gw *batchv1alpha1.InferenceGatewaySpec) map[string]interface{} {
-	m := map[string]interface{}{
-		"url": gw.URL,
-	}
+	m := map[string]interface{}{}
+	setIfNotEmpty(m, "url", gw.URL)
+	// TODO: ignored by the chart now, wait batch-gateway add async dispatch support
+	setIfNotEmpty(m, "inferencePoolName", gw.InferencePoolName)
 	setIfNotEmpty(m, "requestTimeout", gw.RequestTimeout)
 	if gw.MaxRetries != nil {
 		m["maxRetries"] = int64(*gw.MaxRetries)

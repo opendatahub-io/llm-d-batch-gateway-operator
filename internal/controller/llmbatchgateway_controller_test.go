@@ -899,10 +899,7 @@ func newTestAsyncGateway(name string) *batchv1alpha1.LLMBatchGateway {
 		InferenceGateway: &batchv1alpha1.InferenceGatewaySpec{
 			URL: "http://epp:8081",
 		},
-		Redis: &batchv1alpha1.AsyncRedisSpec{
-			RequestQueueName: "request-sortedset",
-			ResultQueueName:  "result-sortedset",
-		},
+		Redis: &batchv1alpha1.AsyncRedisSpec{},
 	}
 	return gw
 }
