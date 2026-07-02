@@ -7,10 +7,9 @@ import (
 // --- Async Processor ---
 
 // AsyncProcessorSpec configures the optional async-processor component that dispatches
-// batch inference requests via a message queue (Redis or GCP Pub/Sub) to
-// inference gateways. When set on LLMBatchGatewaySpec, the controller deploys
-// an additional async-processor Deployment alongside the core components.
-// +kubebuilder:validation:XValidation:rule="!(has(self.redis) && has(self.gcpPubSub))",message="redis and gcpPubSub are mutually exclusive"
+// batch inference requests via a Redis message queue to inference gateways.
+// When set on LLMBatchGatewaySpec, the controller deploys an additional
+// async-processor Deployment alongside the core components.
 type AsyncProcessorSpec struct {
 	// Replicas is the desired number of async-processor pods.
 	// Setting this to 0 suspends the async-processor; the Ready condition will be False.
@@ -43,17 +42,12 @@ type AsyncProcessorSpec struct {
 
 	// MessageQueueImpl selects the message queue implementation.
 	// When empty, auto-selection occurs based on which backend is enabled.
-	// Valid values: "redis-pubsub", "redis-sortedset", "gcp-pubsub", "gcp-pubsub-gated".
-	// +kubebuilder:validation:Enum="";redis-pubsub;redis-sortedset;gcp-pubsub;gcp-pubsub-gated
+	// Valid values: "redis-pubsub", "redis-sortedset".
+	// +kubebuilder:validation:Enum="";redis-pubsub;redis-sortedset
 	MessageQueueImpl string `json:"messageQueueImpl,omitempty"`
 
 	// Redis configures the Redis message queue backend.
-	// Mutually exclusive with GCPPubSub.
 	Redis *AsyncRedisSpec `json:"redis,omitempty"`
-
-	// GCPPubSub configures the GCP Pub/Sub message queue backend.
-	// Mutually exclusive with Redis.
-	GCPPubSub *AsyncGCPPubSubSpec `json:"gcpPubSub,omitempty"`
 
 	// WorkerPools defines named worker pool configurations.
 	// +optional
@@ -130,60 +124,6 @@ type AsyncQueueConfig struct {
 	GateType string `json:"gateType,omitempty"`
 
 	// GateParams overrides the gate parameters for this queue.
-	GateParams map[string]string `json:"gateParams,omitempty"`
-}
-
-// AsyncGCPPubSubSpec configures the GCP Pub/Sub message queue backend for the async-processor.
-// Presence of this field (non-nil pointer) enables GCP Pub/Sub as the message queue backend.
-type AsyncGCPPubSubSpec struct {
-	// ProjectID is the GCP project ID. Required when enabled.
-	// +kubebuilder:validation:MaxLength=253
-	ProjectID string `json:"projectId,omitempty"`
-
-	// RequestSubscriberID is the Pub/Sub subscription ID for incoming requests.
-	// +kubebuilder:validation:MaxLength=253
-	RequestSubscriberID string `json:"requestSubscriberId,omitempty"`
-
-	// ResultTopicID is the Pub/Sub topic ID for publishing results.
-	// +kubebuilder:validation:MaxLength=253
-	ResultTopicID string `json:"resultTopicId,omitempty"`
-
-	// RequestPathURL is the path appended to the inference gateway URL for requests.
-	// +kubebuilder:default="/v1/completions"
-	// +kubebuilder:validation:MaxLength=2048
-	RequestPathURL string `json:"requestPathURL,omitempty"`
-
-	// TopicsConfig is a list of per-topic configurations.
-	// When set, overrides the single-topic settings.
-	// +optional
-	TopicsConfig []AsyncTopicConfig `json:"topicsConfig,omitempty"`
-}
-
-// AsyncTopicConfig configures a single GCP Pub/Sub topic for the async-processor.
-type AsyncTopicConfig struct {
-	// SubscriptionID is the Pub/Sub subscription for this topic.
-	// +kubebuilder:validation:Required
-	// +kubebuilder:validation:MaxLength=253
-	SubscriptionID string `json:"subscriptionId"`
-
-	// IGWBaseURL overrides the global inference gateway URL for this topic.
-	// +kubebuilder:validation:MaxLength=2048
-	// +kubebuilder:validation:Pattern=`^https?://.+$`
-	IGWBaseURL string `json:"igwBaseURL,omitempty"`
-
-	// RequestPathURL overrides the request path for this topic.
-	// +kubebuilder:validation:MaxLength=2048
-	RequestPathURL string `json:"requestPathURL,omitempty"`
-
-	// ResultTopicID overrides the result topic for this topic.
-	// +kubebuilder:validation:MaxLength=253
-	ResultTopicID string `json:"resultTopicId,omitempty"`
-
-	// GateType specifies the gating mechanism for this topic.
-	// +kubebuilder:validation:MaxLength=253
-	GateType string `json:"gateType,omitempty"`
-
-	// GateParams provides parameters for the gating mechanism of this topic.
 	GateParams map[string]string `json:"gateParams,omitempty"`
 }
 

@@ -19,8 +19,6 @@ func (h *HelmRenderer) RenderAsyncChart(gw *batchv1alpha1.LLMBatchGateway, secre
 }
 
 // specToAsyncHelmValues maps the CRD spec to upstream async-processor Helm values.
-// secretName is used only by the Redis backend (redis.secretName); GCP Pub/Sub
-// authenticates via Workload Identity and does not need a secret.
 func specToAsyncHelmValues(gw *batchv1alpha1.LLMBatchGateway, secretName string, images ComponentImages) map[string]any {
 	ac := gw.Spec.Processor.AsyncConfig
 	if ac == nil {
@@ -94,33 +92,6 @@ func specToAsyncHelmValues(gw *batchv1alpha1.LLMBatchGateway, secretName string,
 			redis["queuesConfig"] = queues
 		}
 		ap["redis"] = redis
-	}
-	if ac.GCPPubSub != nil {
-		pubsub := map[string]any{
-			"enabled": true,
-		}
-		setIfNotEmpty(pubsub, "projectId", ac.GCPPubSub.ProjectID)
-		setIfNotEmpty(pubsub, "requestSubscriberId", ac.GCPPubSub.RequestSubscriberID)
-		setIfNotEmpty(pubsub, "resultTopicId", ac.GCPPubSub.ResultTopicID)
-		setIfNotEmpty(pubsub, "requestPathURL", ac.GCPPubSub.RequestPathURL)
-		if len(ac.GCPPubSub.TopicsConfig) > 0 {
-			var topics []any
-			for _, t := range ac.GCPPubSub.TopicsConfig {
-				tm := map[string]any{
-					"subscription_id": t.SubscriptionID,
-				}
-				setIfNotEmpty(tm, "igw_base_url", t.IGWBaseURL)
-				setIfNotEmpty(tm, "request_path_url", t.RequestPathURL)
-				setIfNotEmpty(tm, "result_topic_id", t.ResultTopicID)
-				setIfNotEmpty(tm, "gate_type", t.GateType)
-				if len(t.GateParams) > 0 {
-					tm["gate_params"] = toStringInterfaceMap(t.GateParams)
-				}
-				topics = append(topics, tm)
-			}
-			pubsub["topicsConfig"] = topics
-		}
-		ap["gcpPubSub"] = pubsub
 	}
 	setIfNotEmpty(ap, "messageQueueImpl", ac.MessageQueueImpl)
 

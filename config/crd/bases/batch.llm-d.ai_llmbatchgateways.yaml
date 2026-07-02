@@ -465,77 +465,6 @@ spec:
                           in-flight requests during shutdown (e.g. "2m").
                         pattern: ^([0-9]+(\.[0-9]+)?(ms|s|m|h))+$
                         type: string
-                      gcpPubSub:
-                        description: |-
-                          GCPPubSub configures the GCP Pub/Sub message queue backend.
-                          Mutually exclusive with Redis.
-                        properties:
-                          projectId:
-                            description: ProjectID is the GCP project ID. Required
-                              when enabled.
-                            maxLength: 253
-                            type: string
-                          requestPathURL:
-                            default: /v1/completions
-                            description: RequestPathURL is the path appended to the
-                              inference gateway URL for requests.
-                            maxLength: 2048
-                            type: string
-                          requestSubscriberId:
-                            description: RequestSubscriberID is the Pub/Sub subscription
-                              ID for incoming requests.
-                            maxLength: 253
-                            type: string
-                          resultTopicId:
-                            description: ResultTopicID is the Pub/Sub topic ID for
-                              publishing results.
-                            maxLength: 253
-                            type: string
-                          topicsConfig:
-                            description: |-
-                              TopicsConfig is a list of per-topic configurations.
-                              When set, overrides the single-topic settings.
-                            items:
-                              description: AsyncTopicConfig configures a single GCP
-                                Pub/Sub topic for the async-processor.
-                              properties:
-                                gateParams:
-                                  additionalProperties:
-                                    type: string
-                                  description: GateParams provides parameters for
-                                    the gating mechanism of this topic.
-                                  type: object
-                                gateType:
-                                  description: GateType specifies the gating mechanism
-                                    for this topic.
-                                  maxLength: 253
-                                  type: string
-                                igwBaseURL:
-                                  description: IGWBaseURL overrides the global inference
-                                    gateway URL for this topic.
-                                  maxLength: 2048
-                                  pattern: ^https?://.+$
-                                  type: string
-                                requestPathURL:
-                                  description: RequestPathURL overrides the request
-                                    path for this topic.
-                                  maxLength: 2048
-                                  type: string
-                                resultTopicId:
-                                  description: ResultTopicID overrides the result
-                                    topic for this topic.
-                                  maxLength: 253
-                                  type: string
-                                subscriptionId:
-                                  description: SubscriptionID is the Pub/Sub subscription
-                                    for this topic.
-                                  maxLength: 253
-                                  type: string
-                              required:
-                              - subscriptionId
-                              type: object
-                            type: array
-                        type: object
                       imagePullPolicy:
                         description: ImagePullPolicy overrides the image pull policy
                           for the async-processor container.
@@ -613,13 +542,11 @@ spec:
                         description: |-
                           MessageQueueImpl selects the message queue implementation.
                           When empty, auto-selection occurs based on which backend is enabled.
-                          Valid values: "redis-pubsub", "redis-sortedset", "gcp-pubsub", "gcp-pubsub-gated".
+                          Valid values: "redis-pubsub", "redis-sortedset".
                         enum:
                         - ""
                         - redis-pubsub
                         - redis-sortedset
-                        - gcp-pubsub
-                        - gcp-pubsub-gated
                         type: string
                       modelServerMonitor:
                         description: ModelServerMonitor configs a PodMonitor that
@@ -655,9 +582,7 @@ spec:
                         maxLength: 2048
                         type: string
                       redis:
-                        description: |-
-                          Redis configures the Redis message queue backend.
-                          Mutually exclusive with GCPPubSub.
+                        description: Redis configures the Redis message queue backend.
                         properties:
                           batchSize:
                             default: 10
@@ -876,9 +801,6 @@ spec:
                           type: object
                         type: array
                     type: object
-                    x-kubernetes-validations:
-                    - message: redis and gcpPubSub are mutually exclusive
-                      rule: '!(has(self.redis) && has(self.gcpPubSub))'
                   config:
                     description: Config holds fine-grained processor configuration.
                     properties:
