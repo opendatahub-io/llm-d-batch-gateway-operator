@@ -38,7 +38,7 @@ jobs:
           - dev_profile: async-gate-redis
           - dev_profile: async-gate-prometheus-query
           - dev_profile: async-gate-prometheus-budget
-          - dev_profile: async-gate-scrape
+          - dev_profile: async-gate-endpoint-scrape
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
 
@@ -61,6 +61,13 @@ jobs:
           OPERATOR_IMG: ${{ env.OPERATOR_IMG }}
           KIND_CLUSTER_NAME: ${{ env.KIND_CLUSTER_NAME }}
           DEV_PROFILE: ${{ matrix.dev_profile }}
+
+      - name: Validate sample CRs against CRD schema
+        run: |
+          for f in config/samples/batch_v1alpha1_*.yaml; do
+            echo "Validating $f..."
+            kubectl apply --dry-run=server -f "$f"
+          done
 
       - name: Run batch-gateway e2e tests
         run: make test-e2e-batch-gateway
