@@ -12,17 +12,12 @@ NAMESPACE="${NAMESPACE:-default}"
 OPERATOR_NAMESPACE="${OPERATOR_NAMESPACE:-llm-d-batch-gateway-operator-system}"
 OPERATOR_IMG="${OPERATOR_IMG:-localhost/llm-d-batch-gateway-operator:dev}"
 
-POSTGRESQL_PASSWORD="${POSTGRESQL_PASSWORD:-postgres}"
-MINIO_ACCESS_KEY="${MINIO_ACCESS_KEY:-minioadmin}"
-MINIO_SECRET_KEY="${MINIO_SECRET_KEY:-minioadmin}"
-MINIO_REGION="${MINIO_REGION:-us-east-1}"
-
 GATEWAY_API_VERSION="${GATEWAY_API_VERSION:-}"
 PROMETHEUS_OPERATOR_VERSION="${PROMETHEUS_OPERATOR_VERSION:-}"
 
 # Dev profile selects which config/samples/dev-<profile>.yaml CR to apply.
 # Available: sync (default), async, async-gate-redis, async-gate-prometheus-query,
-#            async-gate-prometheus-budget, async-gate-scrape.
+#            async-gate-prometheus-budget, async-gate-endpoint-scrape.
 DEV_PROFILE="${DEV_PROFILE:-sync}"
 
 # read from params.env if you wanna test a different image, go update params.env
@@ -38,7 +33,7 @@ VLLM_SIM_IMG="${VLLM_SIM_IMG:-ghcr.io/llm-d/llm-d-inference-sim:latest}"
 APISERVER_NODE_PORT="${APISERVER_NODE_PORT:-30080}"
 APISERVER_OBS_NODE_PORT="${APISERVER_OBS_NODE_PORT:-30081}"
 PROCESSOR_NODE_PORT="${PROCESSOR_NODE_PORT:-30090}"
-LOCAL_PORT="${LOCAL_PORT:-8000}"
+LOCAL_APISERVER_PORT="${LOCAL_APISERVER_PORT:-8000}"
 LOCAL_OBS_PORT="${LOCAL_OBS_PORT:-8081}"
 LOCAL_PROCESSOR_PORT="${LOCAL_PROCESSOR_PORT:-9090}"
 
@@ -124,7 +119,7 @@ nodes:
 - role: control-plane
   extraPortMappings:
   - containerPort: ${APISERVER_NODE_PORT}
-    hostPort: ${LOCAL_PORT}
+    hostPort: ${LOCAL_APISERVER_PORT}
     protocol: TCP
   - containerPort: ${APISERVER_OBS_NODE_PORT}
     hostPort: ${LOCAL_OBS_PORT}
@@ -141,11 +136,7 @@ EOF
 # ── Dependencies ─────────────────────────────────────────────────────────────
 
 install_prereqs() {
-    NAMESPACE="${NAMESPACE}" \
-    POSTGRESQL_PASSWORD="${POSTGRESQL_PASSWORD}" \
-    MINIO_ROOT_USER="${MINIO_ACCESS_KEY}" \
-    MINIO_ROOT_PASSWORD="${MINIO_SECRET_KEY}" \
-        bash "${SCRIPT_DIR}/setup-prereqs.sh"
+    NAMESPACE="${NAMESPACE}" bash "${SCRIPT_DIR}/setup-prereqs.sh"
 }
 
 install_gateway_api_crds() {
@@ -268,7 +259,7 @@ prepare_gate_deps() {
         async-gate-prometheus-budget)
             prepare_gate_prometheus
             ;;
-        async-gate-scrape)
+        async-gate-endpoint-scrape)
             prepare_gate_scrape
             ;;
         *)
@@ -392,7 +383,7 @@ EOF
 build_operator() {
     step "Building operator image '${OPERATOR_IMG}'..."
     cd "${OPERATOR_DIR}"
-    local build_args=(-t "${OPERATOR_IMG}" -f Dockerfile.konflux)
+    local build_args=(--no-cache -t "${OPERATOR_IMG}" -f Dockerfile.konflux)
     if [ "${CONTAINER_TOOL}" = "podman" ]; then
         build_args+=(--ignorefile Dockerfile.dockerignore)
     fi
@@ -432,75 +423,22 @@ deploy_operator() {
     log "Operator deployed."
 }
 
-apply_cr() {
-    step "Applying dev LLMBatchGateway CR..."
+# ── Wait & Verify ────────────────────────────────────────────────────────────
+
+apply_and_verify_cr() {
     cd "${OPERATOR_DIR}"
 
     local cr_file="config/samples/dev-${DEV_PROFILE}.yaml"
+
+    # Apply CR
+    step "Applying dev LLMBatchGateway CR (${cr_file})..."
     if [ ! -f "${cr_file}" ]; then
         die "Dev profile CR not found: ${cr_file} (DEV_PROFILE=${DEV_PROFILE})"
     fi
     kubectl apply -f "${cr_file}" -n "${NAMESPACE}"
 
-    log "CR applied (${cr_file}). Operator will reconcile and create batch-gateway components."
-}
-
-# ── NodePort Services ────────────────────────────────────────────────────────
-
-create_nodeport_services() {
-    step "Creating NodePort services for local access..."
-
-    kubectl apply -n "${NAMESPACE}" -f - <<EOF
-apiVersion: v1
-kind: Service
-metadata:
-  name: batch-gateway-apiserver-nodeport
-spec:
-  type: NodePort
-  selector:
-    app.kubernetes.io/name: batch-gateway-apiserver
-    app.kubernetes.io/instance: batch-gateway-dev
-    app.kubernetes.io/component: apiserver
-  ports:
-  - name: http
-    protocol: TCP
-    port: 8000
-    targetPort: http
-    nodePort: ${APISERVER_NODE_PORT}
-  - name: observability
-    protocol: TCP
-    port: 8081
-    targetPort: observability
-    nodePort: ${APISERVER_OBS_NODE_PORT}
----
-apiVersion: v1
-kind: Service
-metadata:
-  name: batch-gateway-processor-nodeport
-spec:
-  type: NodePort
-  selector:
-    app.kubernetes.io/name: batch-gateway-processor
-    app.kubernetes.io/instance: batch-gateway-dev
-    app.kubernetes.io/component: processor
-  ports:
-  - name: metrics
-    protocol: TCP
-    port: 9090
-    targetPort: metrics
-    nodePort: ${PROCESSOR_NODE_PORT}
-EOF
-
-    log "NodePort services created."
-}
-
-# ── Wait & Verify ────────────────────────────────────────────────────────────
-
-wait_for_batch_gateway() {
-    step "Waiting for batch-gateway components..."
-
-    local cr_name="batch-gateway-dev"
-    local cr_file="config/samples/dev-${DEV_PROFILE}.yaml"
+    local cr_name
+    cr_name=$(yq '.metadata.name' "$cr_file")
 
     # 1. Determine expected dispatch mode from profile name
     local expected_dispatch="sync"
@@ -558,10 +496,6 @@ wait_for_batch_gateway() {
         # Verify gate type if a gate profile is deployed
         if [[ "${DEV_PROFILE}" == async-gate-* ]]; then
             local expected_gate="${DEV_PROFILE##*gate-}"
-            case "$expected_gate" in
-                scrape) expected_gate="endpoint-scrape" ;;
-            esac
-
             local actual_gate
             actual_gate=$(echo "$queues_json" | jq -r '.[0].gate_type')
 
@@ -572,17 +506,20 @@ wait_for_batch_gateway() {
             fi
         fi
 
-        # Verify worker pool from queuesConfig args
+        # Verify worker pool from queuesConfig args matches CR
+        local expected_pool_id
+        expected_pool_id=$(yq '.spec.processor.asyncConfig.redis.queuesConfig[0].workerPoolID' "$cr_file")
         local pool_id
         pool_id=$(echo "$queues_json" | jq -r '.[0].worker_pool_id')
-        if [[ "$pool_id" == "sim-workers" ]]; then
+        if [[ -z "$expected_pool_id" || "$expected_pool_id" == "null" ]]; then
+            log "Worker pool ID not set in CR, using API default: $pool_id"
+        elif [[ "$pool_id" == "$expected_pool_id" ]]; then
             log "Worker pool verified: $pool_id"
         else
-            die "Expected worker_pool_id 'sim-workers', got '$pool_id'"
+            die "Expected worker_pool_id '$expected_pool_id', got '$pool_id'"
         fi
 
         # Verify pool gate from ConfigMap matches CR
-        local cr_file="config/samples/dev-${DEV_PROFILE}.yaml"
         local expected_pool_gate
         expected_pool_gate=$(yq '.spec.processor.asyncConfig.workerPools[0].gateType' "$cr_file")
         if [[ -n "$expected_pool_gate" && "$expected_pool_gate" != "null" ]]; then
@@ -599,6 +536,52 @@ wait_for_batch_gateway() {
     fi
 
     log "All batch-gateway components are ready."
+}
+
+
+# ── NodePort Services ────────────────────────────────────────────────────────
+
+create_nodeport_services() {
+    step "Creating NodePort services for local access..."
+
+    kubectl apply -n "${NAMESPACE}" -f - <<EOF
+apiVersion: v1
+kind: Service
+metadata:
+  name: batch-gateway-apiserver-nodeport
+spec:
+  type: NodePort
+  selector:
+    app.kubernetes.io/component: apiserver
+  ports:
+  - name: http
+    protocol: TCP
+    port: 8000
+    targetPort: http
+    nodePort: ${APISERVER_NODE_PORT}
+  - name: observability
+    protocol: TCP
+    port: 8081
+    targetPort: observability
+    nodePort: ${APISERVER_OBS_NODE_PORT}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: batch-gateway-processor-nodeport
+spec:
+  type: NodePort
+  selector:
+    app.kubernetes.io/component: processor
+  ports:
+  - name: metrics
+    protocol: TCP
+    port: 9090
+    targetPort: metrics
+    nodePort: ${PROCESSOR_NODE_PORT}
+EOF
+
+    log "NodePort services created."
 }
 
 print_status() {
@@ -618,7 +601,7 @@ print_status() {
 
     echo "----------------------------------------"
     echo "  Access:"
-    echo "    API Server:  http://localhost:${LOCAL_PORT}"
+    echo "    API Server:  http://localhost:${LOCAL_APISERVER_PORT}"
     echo "    Observability: http://localhost:${LOCAL_OBS_PORT}"
     echo "    Processor:   http://localhost:${LOCAL_PROCESSOR_PORT}"
 
@@ -647,8 +630,7 @@ main() {
     prepare_gate_deps
     load_operator
     deploy_operator
-    apply_cr
-    wait_for_batch_gateway
+    apply_and_verify_cr
     create_nodeport_services
     print_status
 }
