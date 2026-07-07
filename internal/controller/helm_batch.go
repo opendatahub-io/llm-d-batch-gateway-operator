@@ -73,6 +73,14 @@ func specToBatchHelmValues(gw *batchv1alpha1.LLMBatchGateway, secretName string,
 		global["otel"] = otelVals
 	}
 
+	if len(gw.Spec.ImagePullSecrets) > 0 {
+		var secrets []any
+		for _, s := range gw.Spec.ImagePullSecrets {
+			secrets = append(secrets, map[string]any{"name": s.Name})
+		}
+		global["imagePullSecrets"] = secrets
+	}
+
 	vals["global"] = global
 
 	// --- API Server ---
@@ -239,6 +247,12 @@ func specToBatchHelmValues(gw *batchv1alpha1.LLMBatchGateway, secretName string,
 			"create": true,
 		},
 	}
+	if gw.Spec.GC.Replicas != nil {
+		gc["replicaCount"] = int64(*gw.Spec.GC.Replicas)
+	}
+	if gw.Spec.GC.Resources != nil {
+		gc["resources"] = resourceRequirementsToMap(gw.Spec.GC.Resources)
+	}
 	gcConfig := map[string]any{}
 	gcCollector := map[string]any{}
 	setIfNotEmpty(gcCollector, "interval", gw.Spec.GC.Interval)
@@ -359,6 +373,9 @@ func apiServerConfigToMap(cfg *batchv1alpha1.APIServerConfigSpec) map[string]int
 			m["fileAPI"] = fa
 		}
 	}
+	if len(cfg.InputHeaders) > 0 {
+		m["inputHeaders"] = toStringInterfaceMap(cfg.InputHeaders)
+	}
 	if cfg.EnablePprof {
 		m["enablePprof"] = true
 	}
@@ -405,6 +422,9 @@ func mergeProcessorConfig(m map[string]interface{}, cfg *batchv1alpha1.Processor
 	}
 	if cfg.ProgressTTLSeconds != 0 {
 		m["progressTTLSeconds"] = cfg.ProgressTTLSeconds
+	}
+	if cfg.SendFairnessHeader != nil {
+		m["sendFairnessHeader"] = *cfg.SendFairnessHeader
 	}
 	if cfg.EnablePprof {
 		m["enablePprof"] = true

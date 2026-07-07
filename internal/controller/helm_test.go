@@ -932,6 +932,99 @@ func TestSpecToHelmValues_ResourceRequirements(t *testing.T) {
 	}
 }
 
+func TestSpecToHelmValues_GCReplicasAndResources(t *testing.T) {
+	gcReplicas := int32(3)
+	gw := minimalGateway()
+	gw.Spec.GC.Replicas = &gcReplicas
+	gw.Spec.GC.Resources = &corev1.ResourceRequirements{
+		Requests: corev1.ResourceList{
+			corev1.ResourceCPU:    resource.MustParse("10m"),
+			corev1.ResourceMemory: resource.MustParse("32Mi"),
+		},
+		Limits: corev1.ResourceList{
+			corev1.ResourceCPU:    resource.MustParse("100m"),
+			corev1.ResourceMemory: resource.MustParse("128Mi"),
+		},
+	}
+
+	vals := specToBatchHelmValues(gw, testSecretName(gw), testImages())
+
+	gc := vals["gc"].(map[string]interface{})
+	if got := gc["replicaCount"]; got != int64(3) {
+		t.Errorf("gc.replicaCount = %v, want 3", got)
+	}
+	res := gc["resources"].(map[string]interface{})
+	requests := res["requests"].(map[string]interface{})
+	if got := requests["cpu"]; got != "10m" {
+		t.Errorf("gc.resources.requests.cpu = %v, want 10m", got)
+	}
+	limits := res["limits"].(map[string]interface{})
+	if got := limits["memory"]; got != "128Mi" {
+		t.Errorf("gc.resources.limits.memory = %v, want 128Mi", got)
+	}
+}
+
+func TestSpecToHelmValues_ImagePullSecrets(t *testing.T) {
+	gw := minimalGateway()
+	gw.Spec.ImagePullSecrets = []corev1.LocalObjectReference{
+		{Name: "regcred"},
+		{Name: "another-secret"},
+	}
+
+	vals := specToBatchHelmValues(gw, testSecretName(gw), testImages())
+
+	global := vals["global"].(map[string]interface{})
+	secrets, ok := global["imagePullSecrets"].([]interface{})
+	if !ok {
+		t.Fatalf("imagePullSecrets not a []interface{}: %T", global["imagePullSecrets"])
+	}
+	if len(secrets) != 2 {
+		t.Fatalf("imagePullSecrets length = %d, want 2", len(secrets))
+	}
+	first := secrets[0].(map[string]interface{})
+	if got := first["name"]; got != "regcred" {
+		t.Errorf("imagePullSecrets[0].name = %v, want regcred", got)
+	}
+	second := secrets[1].(map[string]interface{})
+	if got := second["name"]; got != "another-secret" {
+		t.Errorf("imagePullSecrets[1].name = %v, want another-secret", got)
+	}
+}
+
+func TestSpecToHelmValues_InputHeaders(t *testing.T) {
+	gw := minimalGateway()
+	gw.Spec.APIServer.Config = &batchv1alpha1.APIServerConfigSpec{
+		InputHeaders: map[string]string{
+			"tenant": "X-MaaS-Username",
+		},
+	}
+
+	vals := specToBatchHelmValues(gw, testSecretName(gw), testImages())
+
+	apiserver := vals["apiserver"].(map[string]interface{})
+	config := apiserver["config"].(map[string]interface{})
+	ih := config["inputHeaders"].(map[string]interface{})
+	if got := ih["tenant"]; got != "X-MaaS-Username" {
+		t.Errorf("inputHeaders.tenant = %v, want X-MaaS-Username", got)
+	}
+}
+
+func TestSpecToHelmValues_SendFairnessHeader(t *testing.T) {
+	enabled := true
+	gw := minimalGateway()
+	gw.Spec.Processor.Config = &batchv1alpha1.ProcessorConfigSpec{
+		SendFairnessHeader: &enabled,
+	}
+
+	vals := specToBatchHelmValues(gw, testSecretName(gw), testImages())
+
+	processor := vals["processor"].(map[string]interface{})
+	config := processor["config"].(map[string]interface{})
+	if got := config["sendFairnessHeader"]; got != true {
+		t.Errorf("sendFairnessHeader = %v, want true", got)
+	}
+}
+
 func minimalGateway() *batchv1alpha1.LLMBatchGateway {
 	replicas := int32(1)
 	return &batchv1alpha1.LLMBatchGateway{
