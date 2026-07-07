@@ -96,6 +96,11 @@ type LLMBatchGatewaySpec struct {
 
 	// PrometheusRule configures a PrometheusRule resource with pre-built alerting rules.
 	PrometheusRule *PrometheusRuleSpec `json:"prometheusRule,omitempty"`
+
+	// ImagePullSecrets is a list of references to secrets for pulling container images
+	// from private registries. Applied globally to all component pods (apiServer, processor, gc).
+	// +kubebuilder:validation:MaxItems=20
+	ImagePullSecrets []corev1.LocalObjectReference `json:"imagePullSecrets,omitempty"`
 }
 
 // --- File Storage ---
@@ -213,6 +218,10 @@ type APIServerConfigSpec struct {
 
 	// IdleTimeoutSeconds is the maximum amount of time to wait for the next request.
 	IdleTimeoutSeconds int32 `json:"idleTimeoutSeconds,omitempty"`
+
+	// InputHeaders maps logical header roles to HTTP header names used for tenant
+	// identification and other input metadata (e.g. {"tenant": "X-MaaS-Username"}).
+	InputHeaders map[string]string `json:"inputHeaders,omitempty"`
 
 	// BatchAPI configures the batch job submission endpoint behaviour.
 	BatchAPI *BatchAPIConfig `json:"batchAPI,omitempty"`
@@ -420,6 +429,10 @@ type ProcessorConfigSpec struct {
 	// +kubebuilder:validation:MaxLength=32
 	AsyncDispatchResultPollTimeout string `json:"asyncDispatchResultPollTimeout,omitempty"`
 
+	// SendFairnessHeader controls whether the processor sends a fairness header
+	// to the inference gateway for fair scheduling across tenants.
+	SendFairnessHeader *bool `json:"sendFairnessHeader,omitempty"`
+
 	// EnablePprof enables the Go pprof profiling HTTP endpoints.
 	EnablePprof bool `json:"enablePprof,omitempty"`
 
@@ -431,6 +444,15 @@ type ProcessorConfigSpec struct {
 
 // GCSpec configures the garbage-collector component.
 type GCSpec struct {
+	// Replicas is the desired number of GC pods.
+	// Setting this to 0 suspends the GC; the Ready condition will be False.
+	// +kubebuilder:default=1
+	// +kubebuilder:validation:Minimum=0
+	Replicas *int32 `json:"replicas,omitempty"`
+
+	// Resources defines CPU and memory requests/limits for the GC container.
+	Resources *corev1.ResourceRequirements `json:"resources,omitempty"`
+
 	// Interval is how often the GC runs (e.g. "30m").
 	// +kubebuilder:default="30m"
 	// +kubebuilder:validation:Pattern=`^([0-9]+(\.[0-9]+)?(ms|s|m|h))+$`
