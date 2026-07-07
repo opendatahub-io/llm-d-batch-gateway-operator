@@ -332,6 +332,10 @@ type InferenceGatewaySpec struct {
 	// +kubebuilder:validation:MaxLength=32
 	MaxBackoff string `json:"maxBackoff,omitempty"`
 
+	// InferenceObjective specifies the scheduling objective for this gateway (e.g. "throughput", "latency").
+	// +kubebuilder:validation:MaxLength=253
+	InferenceObjective string `json:"inferenceObjective,omitempty"`
+
 	// TLSInsecureSkipVerify disables TLS certificate verification. Not recommended for production.
 	TLSInsecureSkipVerify bool `json:"tlsInsecureSkipVerify,omitempty"`
 
@@ -400,10 +404,6 @@ type ProcessorConfigSpec struct {
 
 	// Concurrency groups all dispatch-rate and concurrency control knobs.
 	Concurrency *ConcurrencyConfig `json:"concurrency,omitempty"`
-
-	// InferenceObjective specifies the scheduling objective (e.g. "throughput", "latency").
-	// +kubebuilder:validation:MaxLength=253
-	InferenceObjective string `json:"inferenceObjective,omitempty"`
 
 	// DefaultOutputExpirationSeconds is the TTL for job output files.
 	DefaultOutputExpirationSeconds int64 `json:"defaultOutputExpirationSeconds,omitempty"`

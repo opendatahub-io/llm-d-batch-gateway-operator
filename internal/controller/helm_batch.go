@@ -309,6 +309,7 @@ func inferenceGatewayToMap(gw *batchv1alpha1.InferenceGatewaySpec) map[string]in
 	setIfNotEmpty(m, "initialBackoff", gw.InitialBackoff)
 	setIfNotEmpty(m, "maxBackoff", gw.MaxBackoff)
 	setIfNotEmpty(m, "tlsCaCertFile", gw.TLSCACertFile)
+	setIfNotEmpty(m, "inferenceObjective", gw.InferenceObjective)
 	setIfNotEmpty(m, "tlsClientCertFile", gw.TLSClientCertFile)
 	setIfNotEmpty(m, "tlsClientKeyFile", gw.TLSClientKeyFile)
 	return m
@@ -397,20 +398,6 @@ func mergeProcessorConfig(m map[string]interface{}, cfg *batchv1alpha1.Processor
 		}
 		if len(concurrency) > 0 {
 			m["concurrency"] = concurrency
-		}
-	}
-	if cfg.InferenceObjective != "" {
-		if gw, ok := m["globalInferenceGateway"].(map[string]interface{}); ok {
-			setIfNotEmpty(gw, "inferenceObjective", cfg.InferenceObjective)
-		}
-		if mgs, ok := m["modelGateways"].(map[string]interface{}); ok {
-			for _, v := range mgs {
-				if mg, ok := v.(map[string]interface{}); ok {
-					if _, exists := mg["inferenceObjective"]; !exists {
-						mg["inferenceObjective"] = cfg.InferenceObjective
-					}
-				}
-			}
 		}
 	}
 	if cfg.DefaultOutputExpirationSeconds != 0 {

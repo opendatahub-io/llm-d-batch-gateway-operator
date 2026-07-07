@@ -607,7 +607,7 @@ func TestSpecToHelmValues_ModelGateways(t *testing.T) {
 	gw := minimalGateway()
 	gw.Spec.Processor.GlobalInferenceGateway = nil
 	gw.Spec.Processor.ModelGateways = map[string]batchv1alpha1.InferenceGatewaySpec{
-		"model-a": {URL: "http://model-a:8000", RequestTimeout: "2m"},
+		"model-a": {URL: "http://model-a:8000", RequestTimeout: "2m", InferenceObjective: "latency"},
 	}
 
 	vals := specToBatchHelmValues(gw, testSecretName(gw), testImages())
@@ -621,6 +621,42 @@ func TestSpecToHelmValues_ModelGateways(t *testing.T) {
 	}
 	if got := ma["requestTimeout"]; got != "2m" {
 		t.Errorf("modelGateways.model-a.requestTimeout = %v", got)
+	}
+	if got := ma["inferenceObjective"]; got != "latency" {
+		t.Errorf("modelGateways.model-a.inferenceObjective = %v, want latency", got)
+	}
+}
+
+func TestSpecToHelmValues_PerGatewayInferenceObjective(t *testing.T) {
+	gw := minimalGateway()
+	gw.Spec.Processor.GlobalInferenceGateway = &batchv1alpha1.InferenceGatewaySpec{
+		URL:                "http://global:8000",
+		InferenceObjective: "throughput",
+	}
+	gw.Spec.Processor.ModelGateways = map[string]batchv1alpha1.InferenceGatewaySpec{
+		"model-a": {URL: "http://model-a:8000", InferenceObjective: "latency"},
+		"model-b": {URL: "http://model-b:8000"},
+	}
+
+	vals := specToBatchHelmValues(gw, testSecretName(gw), testImages())
+
+	processor := vals["processor"].(map[string]interface{})
+	config := processor["config"].(map[string]interface{})
+
+	gwConfig := config["globalInferenceGateway"].(map[string]interface{})
+	if got := gwConfig["inferenceObjective"]; got != "throughput" {
+		t.Errorf("globalInferenceGateway.inferenceObjective = %v, want throughput", got)
+	}
+
+	mg := config["modelGateways"].(map[string]interface{})
+	ma := mg["model-a"].(map[string]interface{})
+	if got := ma["inferenceObjective"]; got != "latency" {
+		t.Errorf("model-a.inferenceObjective = %v, want latency", got)
+	}
+
+	mb := mg["model-b"].(map[string]interface{})
+	if _, exists := mb["inferenceObjective"]; exists {
+		t.Errorf("model-b should not have inferenceObjective, got %v", mb["inferenceObjective"])
 	}
 }
 
@@ -710,6 +746,7 @@ func TestSpecToHelmValues_APIServerConfig(t *testing.T) {
 
 func TestSpecToHelmValues_ProcessorConfig(t *testing.T) {
 	gw := minimalGateway()
+	gw.Spec.Processor.GlobalInferenceGateway.InferenceObjective = "max-throughput"
 	gw.Spec.Processor.Config = &batchv1alpha1.ProcessorConfigSpec{
 		NumWorkers: 8,
 		Concurrency: &batchv1alpha1.ConcurrencyConfig{
@@ -717,7 +754,6 @@ func TestSpecToHelmValues_ProcessorConfig(t *testing.T) {
 			PerEndpoint: 16,
 			Recovery:    4,
 		},
-		InferenceObjective:             "throughput",
 		DefaultOutputExpirationSeconds: 7200,
 		ProgressTTLSeconds:             3600,
 		EnablePprof:                    true,
@@ -748,8 +784,8 @@ func TestSpecToHelmValues_ProcessorConfig(t *testing.T) {
 	if !ok {
 		t.Fatalf("globalInferenceGateway not found or wrong type: %T", config["globalInferenceGateway"])
 	}
-	if got := gwConfig["inferenceObjective"]; got != "throughput" {
-		t.Errorf("globalInferenceGateway.inferenceObjective = %v, want throughput", got)
+	if got := gwConfig["inferenceObjective"]; got != "max-throughput" {
+		t.Errorf("globalInferenceGateway.inferenceObjective = %v, want max-throughput", got)
 	}
 	if got := config["defaultOutputExpirationSeconds"]; got != int64(7200) {
 		t.Errorf("defaultOutputExpirationSeconds = %v, want 7200", got)
