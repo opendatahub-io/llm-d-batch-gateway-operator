@@ -73,7 +73,6 @@ jobs:
         run: make test-e2e-batch-gateway
         env:
           TEST_APISERVER_URL: "http://localhost:8000"
-          TEST_RUN: "TestE2E/Batches/Lifecycle"
 
       - name: Run operator e2e tests
         run: make test-e2e-operator

@@ -126,6 +126,12 @@ type S3StorageSpec struct {
 	// +kubebuilder:validation:MaxLength=253
 	Region string `json:"region,omitempty"`
 
+	// Bucket is the S3 bucket name used for all file storage.
+	// Tenant isolation is achieved via S3 key prefixes, not separate buckets.
+	// +kubebuilder:validation:MaxLength=63
+	// +kubebuilder:validation:MinLength=1
+	Bucket string `json:"bucket"`
+
 	// Endpoint overrides the S3 endpoint URL for non-AWS providers (e.g. MinIO).
 	// +kubebuilder:validation:MaxLength=2048
 	// +kubebuilder:validation:Pattern=`^https?://.+$`

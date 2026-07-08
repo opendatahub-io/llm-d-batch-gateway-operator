@@ -36,6 +36,7 @@ func newTestGateway(name string) *batchv1alpha1.LLMBatchGateway {
 			FileStorage: &batchv1alpha1.FileStorageSpec{
 				S3: &batchv1alpha1.S3StorageSpec{
 					Region:   "us-east-1",
+					Bucket:   "llm-d-batch-gateway",
 					Endpoint: "https://s3.example.com",
 				},
 			},

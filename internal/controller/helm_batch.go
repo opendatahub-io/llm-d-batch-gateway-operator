@@ -29,6 +29,7 @@ func specToBatchHelmValues(gw *batchv1alpha1.LLMBatchGateway, secretName string,
 			s3 := gw.Spec.FileStorage.S3
 			s3Vals := map[string]any{}
 			setIfNotEmpty(s3Vals, "region", s3.Region)
+			setIfNotEmpty(s3Vals, "bucket", s3.Bucket)
 			setIfNotEmpty(s3Vals, "endpoint", s3.Endpoint)
 			setIfNotEmpty(s3Vals, "accessKeyId", s3.AccessKeyID)
 			if s3.Prefix != "" {
