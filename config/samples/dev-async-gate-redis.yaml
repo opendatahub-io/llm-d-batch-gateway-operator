@@ -29,23 +29,26 @@ spec:
         inferencePoolName: sim-pool
     asyncConfig:
       replicas: 1
-      concurrency: 1
-      drainTimeout: 2m
-      redis:
-        requestPathURL: /v1/completions
-        pollIntervalMs: 500
-        batchSize: 10
-        queuesConfig:
-        - name: "llm-d-async:requests:sim-pool"     # format: llm-d-async:requests:<inferencePoolName> (from processor.modelGateways[].inferencePoolName)
+      values:
+        messageQueueImpl: redis-sortedset
+        concurrency: 1
+        drainTimeout: 2m
+        redis:
+          enabled: true
           requestPathURL: /v1/completions
-          igwBaseURL: http://vllm-sim.default.svc.cluster.local:8000
-          gateType: redis
-          gateParams:
-            address: "redis-master.default.svc.cluster.local:6379"
-          workerPoolID: sim-workers
-      workerPools:
-      - name: sim-workers
-        workers: 4
-        gateType: local-max-concurrency
-        gateParams:
-          limit: "2"
+          pollIntervalMs: 500
+          batchSize: 10
+          queuesConfig:
+          - queue_name: "llm-d-async:requests:sim-pool"     # format: llm-d-async:requests:<inferencePoolName> (from processor.modelGateways[].inferencePoolName)
+            request_path_url: /v1/completions
+            igw_base_url: http://vllm-sim.default.svc.cluster.local:8000
+            gate_type: redis
+            gate_params:
+              address: "redis-master.default.svc.cluster.local:6379"
+            worker_pool_id: sim-workers
+        workerPools:
+        - id: sim-workers
+          workers: 4
+          gate_type: local-max-concurrency
+          gate_params:
+            limit: "2"

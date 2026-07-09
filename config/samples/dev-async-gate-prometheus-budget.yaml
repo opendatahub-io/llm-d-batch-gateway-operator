@@ -29,28 +29,31 @@ spec:
         inferencePoolName: sim-pool-prom-budget
     asyncConfig:
       replicas: 1
-      concurrency: 1
-      drainTimeout: 2m
-      prometheusURL: http://prometheus.default.svc.cluster.local:9090
-      prometheusCacheTTL: "0s"
-      redis:
-        requestPathURL: /v1/completions
-        pollIntervalMs: 500
-        batchSize: 10
-        queuesConfig:
-        - name: "llm-d-async:requests:sim-pool-prom-budget"     # format: llm-d-async:requests:<inferencePoolName> (from processor.modelGateways[].inferencePoolName)
+      values:
+        messageQueueImpl: redis-sortedset
+        concurrency: 1
+        drainTimeout: 2m
+        prometheusURL: http://prometheus.default.svc.cluster.local:9090
+        prometheusCacheTTL: "0s"
+        redis:
+          enabled: true
           requestPathURL: /v1/completions
-          igwBaseURL: http://vllm-sim.default.svc.cluster.local:8000
-          gateType: prometheus-budget
-          gateParams:
-            pool: sim-pool-prom-budget
-            max_concurrency: "5"
-            baseline: "0.05"
-            fallback: "1.0"
-          workerPoolID: sim-workers
-      workerPools:
-      - name: sim-workers
-        workers: 4
-        gateType: local-max-concurrency
-        gateParams:
-          limit: "2"
+          pollIntervalMs: 500
+          batchSize: 10
+          queuesConfig:
+          - queue_name: "llm-d-async:requests:sim-pool-prom-budget"     # format: llm-d-async:requests:<inferencePoolName> (from processor.modelGateways[].inferencePoolName)
+            request_path_url: /v1/completions
+            igw_base_url: http://vllm-sim.default.svc.cluster.local:8000
+            gate_type: prometheus-budget
+            gate_params:
+              pool: sim-pool-prom-budget
+              max_concurrency: "5"
+              baseline: "0.05"
+              fallback: "1.0"
+            worker_pool_id: sim-workers
+        workerPools:
+        - id: sim-workers
+          workers: 4
+          gate_type: local-max-concurrency
+          gate_params:
+            limit: "2"

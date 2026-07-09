@@ -19,7 +19,7 @@ die()  { echo "  [FATAL] $*" >&2; exit 1; }
 PF_PIDS=()
 
 cleanup_port_forwards() {
-    for pid in "${PF_PIDS[@]}"; do
+    for pid in "${PF_PIDS[@]+"${PF_PIDS[@]}"}"; do
         kill "$pid" 2>/dev/null
         wait "$pid" 2>/dev/null || true
     done
@@ -80,7 +80,9 @@ cd "${OPERATOR_DIR}/${BATCH_GATEWAY_DIR}/test/e2e"
 if [[ "$dispatch_mode" == "async" ]]; then
     # The upstream TestE2E auto-skips in async mode. Run TestDispatcher instead
     # to verify the async dispatch round-trip end-to-end.
-    TEST_RUN="${TEST_RUN:-TestDispatcher/BatchThroughDispatcher}"
+    # Override unconditionally: the Makefile default (TestE2E/Batches/Lifecycle)
+    # is wrong for async mode since TestE2E skips when dispatch_mode=async.
+    TEST_RUN="TestDispatcher/BatchThroughDispatcher"
 
     step "Setting up port-forwards for async dispatcher tests..."
     start_port_forward "svc/redis-master" 6399 6379

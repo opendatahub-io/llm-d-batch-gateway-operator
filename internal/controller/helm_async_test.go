@@ -1,29 +1,41 @@
 package controller
 
 import (
+	"encoding/json"
 	"testing"
 
 	batchv1alpha1 "github.com/opendatahub-io/llm-d-batch-gateway-operator/api/v1alpha1"
+	"k8s.io/apimachinery/pkg/runtime"
 )
 
 func minimalAsyncGateway() *batchv1alpha1.LLMBatchGateway {
 	gw := minimalGateway()
-	concurrency := int32(8)
 	gw.Spec.Processor.DispatchMode = dispatchModeAsync
 	gw.Spec.Processor.AsyncConfig = &batchv1alpha1.AsyncProcessorSpec{
-		Concurrency:  &concurrency,
-		DrainTimeout: "2m",
-		InferenceGateway: &batchv1alpha1.InferenceGatewaySpec{
-			URL: "http://epp:8081",
-		},
-		Redis: &batchv1alpha1.AsyncRedisSpec{},
+		Values: rawJSON(map[string]any{
+			"messageQueueImpl": "redis-sortedset",
+			"concurrency":      8,
+			"drainTimeout":     "2m",
+			"igwBaseURL":       "http://epp:8081",
+			"redis": map[string]any{
+				"enabled": true,
+			},
+		}),
 	}
 	return gw
 }
 
+func rawJSON(v any) *runtime.RawExtension {
+	data, _ := json.Marshal(v)
+	return &runtime.RawExtension{Raw: data}
+}
+
 func TestSpecToAsyncHelmValues(t *testing.T) {
 	gw := minimalAsyncGateway()
-	vals := specToAsyncHelmValues(gw, testSecretName(gw), testImages())
+	vals, err := specToAsyncHelmValues(gw, testSecretName(gw), testImages())
+	if err != nil {
+		t.Fatalf("specToAsyncHelmValues() error: %v", err)
+	}
 
 	ap, ok := vals["ap"].(map[string]any)
 	if !ok {
@@ -41,52 +53,242 @@ func TestSpecToAsyncHelmValues(t *testing.T) {
 		}
 	})
 
-	t.Run("concurrency", func(t *testing.T) {
-		if got := ap["concurrency"]; got != int64(8) {
-			t.Errorf("concurrency = %v, want 8", got)
+	t.Run("values passthrough", func(t *testing.T) {
+		if got, ok := ap["concurrency"].(float64); !ok || got != 8 {
+			t.Errorf("concurrency = %v, want 8", ap["concurrency"])
 		}
-	})
-
-	t.Run("igwBaseURL", func(t *testing.T) {
 		if got := ap["igwBaseURL"]; got != "http://epp:8081" {
 			t.Errorf("igwBaseURL = %v, want http://epp:8081", got)
 		}
-	})
-
-	t.Run("drainTimeout", func(t *testing.T) {
 		if got := ap["drainTimeout"]; got != "2m" {
 			t.Errorf("drainTimeout = %v, want 2m", got)
 		}
-	})
-
-	t.Run("redis", func(t *testing.T) {
-		redis := ap["redis"].(map[string]any)
+		redis, ok := ap["redis"].(map[string]any)
+		if !ok {
+			t.Fatal("redis not set")
+		}
 		if got := redis["enabled"]; got != true {
 			t.Errorf("redis.enabled = %v, want true", got)
 		}
 		if got := redis["secretName"]; got != testSecretName(gw) {
-			t.Errorf("redis.secretName = %v, want %s", got, testSecretName(gw))
+			t.Errorf("redis.secretName = %v, want %s (operator-injected)", got, testSecretName(gw))
 		}
 		if got := redis["secretKey"]; got != "redis-url" {
-			t.Errorf("redis.secretKey = %v, want redis-url", got)
+			t.Errorf("redis.secretKey = %v, want redis-url (operator-injected)", got)
 		}
 	})
+}
+
+func TestSpecToAsyncHelmValues_MissingMessageQueueImpl(t *testing.T) {
+	gw := minimalAsyncGateway()
+	gw.Spec.Processor.AsyncConfig.Values = rawJSON(map[string]any{
+		"concurrency":  8,
+		"drainTimeout": "2m",
+		"igwBaseURL":   "http://epp:8081",
+		"redis": map[string]any{
+			"enabled": true,
+		},
+	})
+	_, err := specToAsyncHelmValues(gw, testSecretName(gw), testImages())
+	if err == nil {
+		t.Fatal("expected error when messageQueueImpl is not set, got nil")
+	}
+}
+
+func TestSpecToAsyncHelmValues_UnsupportedMessageQueueImpl(t *testing.T) {
+	gw := minimalAsyncGateway()
+	gw.Spec.Processor.AsyncConfig.Values = rawJSON(map[string]any{
+		"messageQueueImpl": "redis-pubsub",
+		"redis": map[string]any{
+			"enabled": true,
+		},
+	})
+	_, err := specToAsyncHelmValues(gw, testSecretName(gw), testImages())
+	if err == nil {
+		t.Fatal("expected error for unsupported messageQueueImpl, got nil")
+	}
+}
+
+func TestSpecToAsyncHelmValues_RedisNotEnabled(t *testing.T) {
+	gw := minimalAsyncGateway()
+	gw.Spec.Processor.AsyncConfig.Values = rawJSON(map[string]any{
+		"messageQueueImpl": "redis-sortedset",
+		"redis": map[string]any{
+			"enabled": false,
+		},
+	})
+	_, err := specToAsyncHelmValues(gw, testSecretName(gw), testImages())
+	if err == nil {
+		t.Fatal("expected error when redis.enabled is false, got nil")
+	}
 }
 
 func TestSpecToAsyncHelmValues_NilAsyncConfig(t *testing.T) {
 	gw := minimalGateway()
 	gw.Spec.Processor.AsyncConfig = nil
-	vals := specToAsyncHelmValues(gw, testSecretName(gw), testImages())
+	vals, err := specToAsyncHelmValues(gw, testSecretName(gw), testImages())
+	if err != nil {
+		t.Fatalf("specToAsyncHelmValues() error: %v", err)
+	}
 
 	if len(vals) != 0 {
 		t.Errorf("expected empty map for nil AsyncConfig, got %v", vals)
 	}
 }
 
+func TestSpecToAsyncHelmValues_TypedFieldsOverrideValues(t *testing.T) {
+	replicas := int32(3)
+	gw := minimalAsyncGateway()
+	gw.Spec.Processor.AsyncConfig.Replicas = &replicas
+	gw.Spec.Processor.AsyncConfig.ImagePullPolicy = "Never"
+	gw.Spec.Processor.AsyncConfig.Values = rawJSON(map[string]any{
+		"messageQueueImpl": "redis-sortedset",
+		"replicaCount":     1,
+		"imagePullPolicy":  "Always",
+		"concurrency":      16,
+		"redis":            map[string]any{"enabled": true},
+	})
+
+	vals, err := specToAsyncHelmValues(gw, testSecretName(gw), testImages())
+	if err != nil {
+		t.Fatalf("specToAsyncHelmValues() error: %v", err)
+	}
+	ap := vals["ap"].(map[string]any)
+
+	if got := ap["replicaCount"]; got != int64(3) {
+		t.Errorf("replicaCount = %v, want 3 (typed field should override values)", got)
+	}
+	if got := ap["imagePullPolicy"]; got != "Never" {
+		t.Errorf("imagePullPolicy = %v, want Never (typed field should override values)", got)
+	}
+	if got, ok := ap["concurrency"].(float64); !ok || got != 16 {
+		t.Errorf("concurrency = %v, want 16 (passthrough value)", ap["concurrency"])
+	}
+}
+
+func TestSpecToAsyncHelmValues_NilValues(t *testing.T) {
+	gw := minimalAsyncGateway()
+	gw.Spec.Processor.AsyncConfig.Values = nil
+	_, err := specToAsyncHelmValues(gw, testSecretName(gw), testImages())
+	if err == nil {
+		t.Fatal("expected error when values is nil (redis is required), got nil")
+	}
+}
+
+func TestSpecToAsyncHelmValues_TLS(t *testing.T) {
+	gw := minimalAsyncGateway()
+	gw.Spec.Processor.AsyncConfig.Values = rawJSON(map[string]any{
+		"messageQueueImpl": "redis-sortedset",
+		"redis":            map[string]any{"enabled": true},
+		"tls": map[string]any{
+			"secretName":         "igw-tls",
+			"insecureSkipVerify": true,
+			"caCertKey":          "ca.crt",
+			"certKey":            "tls.crt",
+			"keyKey":             "tls.key",
+		},
+	})
+	vals, err := specToAsyncHelmValues(gw, testSecretName(gw), testImages())
+	if err != nil {
+		t.Fatalf("specToAsyncHelmValues() error: %v", err)
+	}
+	ap := vals["ap"].(map[string]any)
+	tls, ok := ap["tls"].(map[string]any)
+	if !ok {
+		t.Fatal("ap.tls not set")
+	}
+	if got := tls["secretName"]; got != "igw-tls" {
+		t.Errorf("tls.secretName = %v, want igw-tls", got)
+	}
+	if got := tls["insecureSkipVerify"]; got != true {
+		t.Errorf("tls.insecureSkipVerify = %v, want true", got)
+	}
+	if got := tls["keyKey"]; got != "tls.key" {
+		t.Errorf("tls.keyKey = %v, want tls.key", got)
+	}
+}
+
+func TestSpecToAsyncHelmValues_TransformConfig(t *testing.T) {
+	gw := minimalAsyncGateway()
+	gw.Spec.Processor.AsyncConfig.Values = rawJSON(map[string]any{
+		"messageQueueImpl": "redis-sortedset",
+		"redis":            map[string]any{"enabled": true},
+		"transformConfig": map[string]any{
+			"requestTransforms": []any{
+				map[string]any{
+					"name":       "gcs-whisper",
+					"type":       "gcs_uri_multipart",
+					"parameters": map[string]any{"providers": "whisper"},
+				},
+			},
+		},
+	})
+	vals, err := specToAsyncHelmValues(gw, testSecretName(gw), testImages())
+	if err != nil {
+		t.Fatalf("specToAsyncHelmValues() error: %v", err)
+	}
+	ap := vals["ap"].(map[string]any)
+	tc, ok := ap["transformConfig"].(map[string]any)
+	if !ok {
+		t.Fatal("ap.transformConfig not set")
+	}
+	transforms, ok := tc["requestTransforms"].([]any)
+	if !ok || len(transforms) != 1 {
+		t.Fatalf("requestTransforms length = %d, want 1", len(transforms))
+	}
+	tm := transforms[0].(map[string]any)
+	if got := tm["name"]; got != "gcs-whisper" {
+		t.Errorf("transform.name = %v, want gcs-whisper", got)
+	}
+	if got := tm["type"]; got != "gcs_uri_multipart" {
+		t.Errorf("transform.type = %v, want gcs_uri_multipart", got)
+	}
+}
+
+func TestSpecToAsyncHelmValues_ModelServerMonitor(t *testing.T) {
+	gw := minimalAsyncGateway()
+	gw.Spec.Processor.AsyncConfig.Values = rawJSON(map[string]any{
+		"messageQueueImpl": "redis-sortedset",
+		"redis":            map[string]any{"enabled": true},
+		"modelServerMonitor": map[string]any{
+			"enabled":  true,
+			"selector": map[string]any{"llm-d.ai/role": "decode"},
+			"port":     "modelserver",
+			"path":     "/metrics",
+			"interval": "15s",
+		},
+	})
+	vals, err := specToAsyncHelmValues(gw, testSecretName(gw), testImages())
+	if err != nil {
+		t.Fatalf("specToAsyncHelmValues() error: %v", err)
+	}
+	ap := vals["ap"].(map[string]any)
+	msm, ok := ap["modelServerMonitor"].(map[string]any)
+	if !ok {
+		t.Fatal("ap.modelServerMonitor not set")
+	}
+	if got := msm["enabled"]; got != true {
+		t.Errorf("modelServerMonitor.enabled = %v, want true", got)
+	}
+	if got := msm["port"]; got != "modelserver" {
+		t.Errorf("modelServerMonitor.port = %v, want modelserver", got)
+	}
+	sel, ok := msm["selector"].(map[string]any)
+	if !ok {
+		t.Fatal("modelServerMonitor.selector missing")
+	}
+	if got := sel["llm-d.ai/role"]; got != "decode" {
+		t.Errorf("selector[llm-d.ai/role] = %v, want decode", got)
+	}
+}
+
 func TestSpecToAsyncHelmValues_Monitoring(t *testing.T) {
 	gw := minimalAsyncGateway()
 	gw.Spec.Monitoring = &batchv1alpha1.MonitoringSpec{Enabled: true}
-	vals := specToAsyncHelmValues(gw, testSecretName(gw), testImages())
+	vals, err := specToAsyncHelmValues(gw, testSecretName(gw), testImages())
+	if err != nil {
+		t.Fatalf("specToAsyncHelmValues() error: %v", err)
+	}
 
 	ap, ok := vals["ap"].(map[string]any)
 	if !ok {
@@ -108,88 +310,6 @@ func TestSpecToAsyncHelmValues_Monitoring(t *testing.T) {
 	}
 }
 
-func TestSpecToAsyncHelmValues_TLS(t *testing.T) {
-	gw := minimalAsyncGateway()
-	gw.Spec.Processor.AsyncConfig.TLS = &batchv1alpha1.AsyncTLSSpec{
-		SecretName:         "igw-tls",
-		InsecureSkipVerify: true,
-		CACertKey:          "ca.crt",
-		CertKey:            "tls.crt",
-		KeyKey:             "tls.key",
-	}
-	vals := specToAsyncHelmValues(gw, testSecretName(gw), testImages())
-	ap := vals["ap"].(map[string]any)
-	tls, ok := ap["tls"].(map[string]any)
-	if !ok {
-		t.Fatal("ap.tls not set")
-	}
-	if got := tls["secretName"]; got != "igw-tls" {
-		t.Errorf("tls.secretName = %v, want igw-tls", got)
-	}
-	if got := tls["insecureSkipVerify"]; got != true {
-		t.Errorf("tls.insecureSkipVerify = %v, want true", got)
-	}
-	if got := tls["keyKey"]; got != "tls.key" {
-		t.Errorf("tls.keyKey = %v, want tls.key", got)
-	}
-}
-
-func TestSpecToAsyncHelmValues_TransformConfig(t *testing.T) {
-	gw := minimalAsyncGateway()
-	gw.Spec.Processor.AsyncConfig.TransformConfig = &batchv1alpha1.AsyncTransformConfig{
-		RequestTransforms: []batchv1alpha1.AsyncRequestTransform{
-			{Name: "gcs-whisper", Type: "gcs_uri_multipart", Parameters: map[string]string{"providers": "whisper"}},
-		},
-	}
-	vals := specToAsyncHelmValues(gw, testSecretName(gw), testImages())
-	ap := vals["ap"].(map[string]any)
-	tc, ok := ap["transformConfig"].(map[string]any)
-	if !ok {
-		t.Fatal("ap.transformConfig not set")
-	}
-	transforms, ok := tc["requestTransforms"].([]any)
-	if !ok || len(transforms) != 1 {
-		t.Fatalf("requestTransforms length = %d, want 1", len(transforms))
-	}
-	tm := transforms[0].(map[string]any)
-	if got := tm["name"]; got != "gcs-whisper" {
-		t.Errorf("transform.name = %v, want gcs-whisper", got)
-	}
-	if got := tm["type"]; got != "gcs_uri_multipart" {
-		t.Errorf("transform.type = %v, want gcs_uri_multipart", got)
-	}
-}
-
-func TestSpecToAsyncHelmValues_ModelServerMonitor(t *testing.T) {
-	gw := minimalAsyncGateway()
-	gw.Spec.Processor.AsyncConfig.ModelServerMonitor = &batchv1alpha1.AsyncModelServerMonitorSpec{
-		Enabled:  true,
-		Selector: map[string]string{"llm-d.ai/role": "decode"},
-		Port:     "modelserver",
-		Path:     "/metrics",
-		Interval: "15s",
-	}
-	vals := specToAsyncHelmValues(gw, testSecretName(gw), testImages())
-	ap := vals["ap"].(map[string]any)
-	msm, ok := ap["modelServerMonitor"].(map[string]any)
-	if !ok {
-		t.Fatal("ap.modelServerMonitor not set")
-	}
-	if got := msm["enabled"]; got != true {
-		t.Errorf("modelServerMonitor.enabled = %v, want true", got)
-	}
-	if got := msm["port"]; got != "modelserver" {
-		t.Errorf("modelServerMonitor.port = %v, want modelserver", got)
-	}
-	sel, ok := msm["selector"].(map[string]any)
-	if !ok {
-		t.Fatal("modelServerMonitor.selector missing")
-	}
-	if got := sel["llm-d.ai/role"]; got != "decode" {
-		t.Errorf("selector[llm-d.ai/role] = %v, want decode", got)
-	}
-}
-
 func TestSpecToAsyncHelmValues_OTEL(t *testing.T) {
 	gw := minimalAsyncGateway()
 	gw.Spec.OTEL = &batchv1alpha1.OTELSpec{
@@ -199,7 +319,10 @@ func TestSpecToAsyncHelmValues_OTEL(t *testing.T) {
 		SamplerArg:   "0.1",
 		RedisTracing: false,
 	}
-	vals := specToAsyncHelmValues(gw, testSecretName(gw), testImages())
+	vals, err := specToAsyncHelmValues(gw, testSecretName(gw), testImages())
+	if err != nil {
+		t.Fatalf("specToAsyncHelmValues() error: %v", err)
+	}
 	ap := vals["ap"].(map[string]any)
 	otel, ok := ap["otel"].(map[string]any)
 	if !ok {
@@ -219,7 +342,10 @@ func TestSpecToAsyncHelmValues_OTEL(t *testing.T) {
 func TestSpecToAsyncHelmValues_Grafana(t *testing.T) {
 	gw := minimalAsyncGateway()
 	gw.Spec.Grafana = &batchv1alpha1.GrafanaSpec{Enabled: true}
-	vals := specToAsyncHelmValues(gw, testSecretName(gw), testImages())
+	vals, err := specToAsyncHelmValues(gw, testSecretName(gw), testImages())
+	if err != nil {
+		t.Fatalf("specToAsyncHelmValues() error: %v", err)
+	}
 	ap := vals["ap"].(map[string]any)
 	grafana, ok := ap["grafana"].(map[string]any)
 	if !ok {
@@ -240,7 +366,10 @@ func TestSpecToAsyncHelmValues_PrometheusRule(t *testing.T) {
 		Enabled: true,
 		Labels:  map[string]string{"team": "ml"},
 	}
-	vals := specToAsyncHelmValues(gw, testSecretName(gw), testImages())
+	vals, err := specToAsyncHelmValues(gw, testSecretName(gw), testImages())
+	if err != nil {
+		t.Fatalf("specToAsyncHelmValues() error: %v", err)
+	}
 	ap := vals["ap"].(map[string]any)
 	pr, ok := ap["prometheusRule"].(map[string]any)
 	if !ok {

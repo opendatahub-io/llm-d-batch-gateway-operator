@@ -892,15 +892,17 @@ func TestReconcile(t *testing.T) {
 
 func newTestAsyncGateway(name string) *batchv1alpha1.LLMBatchGateway {
 	gw := newTestGateway(name)
-	concurrency := int32(8)
 	gw.Spec.Processor.DispatchMode = dispatchModeAsync
 	gw.Spec.Processor.AsyncConfig = &batchv1alpha1.AsyncProcessorSpec{
-		Concurrency:  &concurrency,
-		DrainTimeout: "2m",
-		InferenceGateway: &batchv1alpha1.InferenceGatewaySpec{
-			URL: "http://epp:8081",
-		},
-		Redis: &batchv1alpha1.AsyncRedisSpec{},
+		Values: rawJSON(map[string]any{
+			"messageQueueImpl": "redis-sortedset",
+			"concurrency":      8,
+			"drainTimeout":     "2m",
+			"igwBaseURL":       "http://epp:8081",
+			"redis": map[string]any{
+				"enabled": true,
+			},
+		}),
 	}
 	return gw
 }
