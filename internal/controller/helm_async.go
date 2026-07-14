@@ -162,6 +162,14 @@ func specToAsyncHelmValues(gw *batchv1alpha1.LLMBatchGateway, secretName string,
 		ap["modelServerMonitor"] = msm
 	}
 
+	if len(gw.Spec.ImagePullSecrets) > 0 {
+		var secrets []any
+		for _, s := range gw.Spec.ImagePullSecrets {
+			secrets = append(secrets, map[string]any{"name": s.Name})
+		}
+		ap["imagePullSecrets"] = secrets
+	}
+
 	if gw.Spec.Monitoring != nil && gw.Spec.Monitoring.Enabled {
 		ap["podMonitor"] = map[string]any{
 			"enabled": true,

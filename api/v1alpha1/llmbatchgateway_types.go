@@ -63,9 +63,13 @@ type LLMBatchGatewaySpec struct {
 	// +kubebuilder:default=postgresql
 	DBBackend string `json:"dbBackend,omitempty"`
 
+	// RedisClient configures Redis/Valkey client connection settings (TLS, etc.).
+	Redis *RedisClientSpec `json:"redis,omitempty"`
+
 	// FileStorage configures the file storage backend used to persist batch
-	// input/output files. If omitted, S3 defaults are used.
-	FileStorage *FileStorageSpec `json:"fileStorage,omitempty"`
+	// input/output files. Exactly one of s3 or fs must be configured.
+	// +kubebuilder:validation:Required
+	FileStorage *FileStorageSpec `json:"fileStorage"`
 
 	// APIServer configures the HTTP API server component.
 	// +kubebuilder:validation:Required
@@ -101,6 +105,17 @@ type LLMBatchGatewaySpec struct {
 	// from private registries. Applied globally to all component pods (apiServer, processor, gc).
 	// +kubebuilder:validation:MaxItems=20
 	ImagePullSecrets []corev1.LocalObjectReference `json:"imagePullSecrets,omitempty"`
+}
+
+// --- Redis Client ---
+
+// RedisClientSpec configures Redis/Valkey client connection settings.
+type RedisClientSpec struct {
+	// EnableTLS enables TLS for the Redis/Valkey connection.
+	EnableTLS bool `json:"enableTLS,omitempty"`
+
+	// Insecure skips TLS certificate verification. Only effective when enableTLS is true.
+	Insecure bool `json:"insecure,omitempty"`
 }
 
 // --- File Storage ---
@@ -151,10 +166,11 @@ type S3StorageSpec struct {
 	UsePathStyle bool `json:"usePathStyle,omitempty"`
 
 	// AutoCreateBucket causes the operator to create the bucket if it does not exist.
-	AutoCreateBucket bool `json:"autoCreateBucket,omitempty"`
+	AutoCreateBucket *bool `json:"autoCreateBucket,omitempty"`
 }
 
 // FSStorageSpec configures PVC-backed filesystem storage.
+// +kubebuilder:validation:XValidation:rule="size(self.claimName) > 0",message="fs.claimName is required"
 type FSStorageSpec struct {
 	// BasePath is the root directory inside the PVC where files are stored.
 	// +kubebuilder:validation:MaxLength=4096
@@ -162,14 +178,15 @@ type FSStorageSpec struct {
 
 	// ClaimName is the name of the PersistentVolumeClaim to mount.
 	// +kubebuilder:validation:MaxLength=253
-	ClaimName string `json:"claimName,omitempty"`
+	ClaimName string `json:"claimName"`
 }
 
 // FileRetrySpec configures retry behaviour for transient file storage errors.
 type FileRetrySpec struct {
-	// MaxRetries is the maximum number of retry attempts.
+	// MaxRetries is the maximum number of retry attempts. Set to 0 to disable retries.
 	// +kubebuilder:default=3
-	MaxRetries int32 `json:"maxRetries,omitempty"`
+	// +kubebuilder:validation:Minimum=0
+	MaxRetries *int32 `json:"maxRetries,omitempty"`
 
 	// InitialBackoff is the wait duration before the first retry (e.g. "1s").
 	// +kubebuilder:default="1s"
@@ -425,15 +442,6 @@ type ProcessorConfigSpec struct {
 
 	// ProgressTTLSeconds is how long in-progress job state is retained before being considered stale.
 	ProgressTTLSeconds int64 `json:"progressTTLSeconds,omitempty"`
-
-	// AsyncDispatchResultPollTimeout is the maximum time the processor waits for
-	// an async dispatch result before timing out (e.g. "30s").
-	// Only takes effect when dispatchMode is "async".
-	// TODO: need add logic in helm values; pass as processor.config.asyncDispatch.resultPollTimeout
-	// once the batch-gateway chart supports it.
-	// +kubebuilder:validation:Pattern=`^([0-9]+(\.[0-9]+)?(ms|s|m|h))+$`
-	// +kubebuilder:validation:MaxLength=32
-	AsyncDispatchResultPollTimeout string `json:"asyncDispatchResultPollTimeout,omitempty"`
 
 	// SendFairnessHeader controls whether the processor sends a fairness header
 	// to the inference gateway for fair scheduling across tenants.

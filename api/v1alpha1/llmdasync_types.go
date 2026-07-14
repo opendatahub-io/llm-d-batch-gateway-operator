@@ -40,6 +40,12 @@ type AsyncProcessorSpec struct {
 	// +kubebuilder:validation:Pattern=`^([0-9]+(\.[0-9]+)?(ms|s|m|h))+$`
 	DrainTimeout string `json:"drainTimeout,omitempty"`
 
+	// ResultPollTimeout is the maximum time the batch-gateway processor waits
+	// for an async dispatch result before timing out (e.g. "30s").
+	// +kubebuilder:validation:Pattern=`^([0-9]+(\.[0-9]+)?(ms|s|m|h))+$`
+	// +kubebuilder:validation:MaxLength=32
+	ResultPollTimeout string `json:"resultPollTimeout,omitempty"`
+
 	// Redis configures the Redis message queue backend.
 	Redis *AsyncRedisSpec `json:"redis,omitempty"`
 
