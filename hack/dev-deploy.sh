@@ -135,8 +135,18 @@ EOF
 
 # ── Dependencies ─────────────────────────────────────────────────────────────
 
+detect_file_storage_type() {
+    local cr_file="config/samples/dev-${DEV_PROFILE}.yaml"
+    if [ -f "${cr_file}" ] && yq -e '.spec.fileStorage.fs' "${cr_file}" &>/dev/null; then
+        echo "fs"
+    else
+        echo "s3"
+    fi
+}
+
 install_prereqs() {
-    NAMESPACE="${NAMESPACE}" bash "${SCRIPT_DIR}/setup-prereqs.sh"
+    FILE_CLIENT_TYPE="$(detect_file_storage_type)" \
+        NAMESPACE="${NAMESPACE}" bash "${SCRIPT_DIR}/setup-prereqs.sh"
 }
 
 install_gateway_api_crds() {
@@ -248,7 +258,7 @@ EOF
 # See: https://github.com/llm-d-incubation/llm-d-async/blob/main/pkg/async/inference/flowcontrol/gate_factory.go
 prepare_gate_deps() {
     case "${DEV_PROFILE}" in
-        sync|async)
+        sync|sync-fs|async)
             ;;
         async-gate-redis)
             prepare_gate_redis

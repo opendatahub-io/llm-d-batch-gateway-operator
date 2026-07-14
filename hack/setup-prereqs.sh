@@ -25,6 +25,9 @@ MINIO_ROOT_USER="${MINIO_ROOT_USER:-minioadmin}"
 MINIO_ROOT_PASSWORD="${MINIO_ROOT_PASSWORD:-minioadmin}"
 MINIO_BUCKET="${MINIO_BUCKET:-batch-gateway}"
 
+FILE_CLIENT_TYPE="${FILE_CLIENT_TYPE:-s3}"
+FILES_PVC_NAME="${FILES_PVC_NAME:-batch-gateway-files}"
+
 SECRET_NAME="${SECRET_NAME:-batch-gateway-secrets}"
 
 # ── Helpers ──────────────────────────────────────────────────────────────────
@@ -174,6 +177,33 @@ EOF
     log "MinIO installed (bucket: ${MINIO_BUCKET})."
 }
 
+create_pvc() {
+    step "Ensuring PVC '${FILES_PVC_NAME}' for file storage..."
+
+    if kubectl get pvc "${FILES_PVC_NAME}" -n "${NAMESPACE}" &>/dev/null; then
+        log "PVC '${FILES_PVC_NAME}' already exists. Skipping."
+        return
+    fi
+
+    # kind's local-path-provisioner only supports ReadWriteOnce.
+    local access_mode="ReadWriteOnce"
+
+    kubectl apply -f - <<EOF
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: ${FILES_PVC_NAME}
+  namespace: ${NAMESPACE}
+spec:
+  accessModes:
+    - ${access_mode}
+  resources:
+    requests:
+      storage: 1Gi
+EOF
+    log "PVC '${FILES_PVC_NAME}' created."
+}
+
 create_secret() {
     step "Creating ${SECRET_NAME}..."
 
@@ -198,13 +228,19 @@ EOF
 # ── Main ─────────────────────────────────────────────────────────────────────
 
 main() {
-    step "Setting up prerequisites for LLMBatchGateway in ${NAMESPACE}"
+    step "Setting up prerequisites for LLMBatchGateway in ${NAMESPACE} (file storage: ${FILE_CLIENT_TYPE})"
 
     kubectl create namespace "${NAMESPACE}" 2>/dev/null || true
 
     install_postgresql
     install_redis
-    install_minio
+
+    if [ "${FILE_CLIENT_TYPE}" = "fs" ]; then
+        create_pvc
+    else
+        install_minio
+    fi
+
     create_secret
 
     echo ""
@@ -212,7 +248,11 @@ main() {
     echo "  Namespace:    ${NAMESPACE}"
     echo "  PostgreSQL:   ${POSTGRESQL_RELEASE}.${NAMESPACE}.svc.cluster.local:5432/batch"
     echo "  Redis:        ${REDIS_RELEASE}-master.${NAMESPACE}.svc.cluster.local:6379"
-    echo "  MinIO (S3):   ${MINIO_RELEASE}.${NAMESPACE}.svc.cluster.local:9000 (bucket: ${MINIO_BUCKET})"
+    if [ "${FILE_CLIENT_TYPE}" = "fs" ]; then
+        echo "  File (PVC):   ${FILES_PVC_NAME}"
+    else
+        echo "  MinIO (S3):   ${MINIO_RELEASE}.${NAMESPACE}.svc.cluster.local:9000 (bucket: ${MINIO_BUCKET})"
+    fi
     echo "  Secret:       ${SECRET_NAME}"
 }
 

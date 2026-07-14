@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	batchv1alpha1 "github.com/opendatahub-io/llm-d-batch-gateway-operator/api/v1alpha1"
+	corev1 "k8s.io/api/core/v1"
 )
 
 func minimalAsyncGateway() *batchv1alpha1.LLMBatchGateway {
@@ -255,6 +256,38 @@ func TestSpecToAsyncHelmValues_PrometheusRule(t *testing.T) {
 	}
 	if got := labels["team"]; got != "ml" {
 		t.Errorf("prometheusRule.labels[team] = %v, want ml", got)
+	}
+}
+
+func TestSpecToAsyncHelmValues_ImagePullSecrets(t *testing.T) {
+	gw := minimalAsyncGateway()
+	gw.Spec.ImagePullSecrets = []corev1.LocalObjectReference{
+		{Name: "registry-creds"},
+		{Name: "ghcr-token"},
+	}
+	vals := specToAsyncHelmValues(gw, testSecretName(gw), testImages())
+	ap := vals["ap"].(map[string]any)
+	secrets, ok := ap["imagePullSecrets"].([]any)
+	if !ok {
+		t.Fatal("ap.imagePullSecrets not set")
+	}
+	if len(secrets) != 2 {
+		t.Fatalf("ap.imagePullSecrets length = %d, want 2", len(secrets))
+	}
+	if got := secrets[0].(map[string]any)["name"]; got != "registry-creds" {
+		t.Errorf("ap.imagePullSecrets[0].name = %v, want registry-creds", got)
+	}
+	if got := secrets[1].(map[string]any)["name"]; got != "ghcr-token" {
+		t.Errorf("ap.imagePullSecrets[1].name = %v, want ghcr-token", got)
+	}
+}
+
+func TestSpecToAsyncHelmValues_NoImagePullSecrets(t *testing.T) {
+	gw := minimalAsyncGateway()
+	vals := specToAsyncHelmValues(gw, testSecretName(gw), testImages())
+	ap := vals["ap"].(map[string]any)
+	if _, ok := ap["imagePullSecrets"]; ok {
+		t.Error("ap.imagePullSecrets should not be set when CRD has none")
 	}
 }
 

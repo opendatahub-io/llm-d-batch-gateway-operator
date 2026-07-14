@@ -15,11 +15,18 @@ func specToBatchHelmValues(gw *batchv1alpha1.LLMBatchGateway, secretName string,
 	vals := map[string]any{}
 
 	// --- Global ---
+	dbClient := map[string]any{
+		"type": gw.Spec.DBBackend,
+	}
+	if gw.Spec.Redis != nil {
+		dbClient["redis"] = map[string]any{
+			"enableTLS": gw.Spec.Redis.EnableTLS,
+			"insecure":  gw.Spec.Redis.Insecure,
+		}
+	}
 	global := map[string]any{
 		"secretName": secretName,
-		"dbClient": map[string]any{
-			"type": gw.Spec.DBBackend,
-		},
+		"dbClient":   dbClient,
 	}
 
 	if gw.Spec.FileStorage != nil {
@@ -36,7 +43,9 @@ func specToBatchHelmValues(gw *batchv1alpha1.LLMBatchGateway, secretName string,
 				s3Vals["prefix"] = s3.Prefix
 			}
 			s3Vals["usePathStyle"] = s3.UsePathStyle
-			s3Vals["autoCreateBucket"] = s3.AutoCreateBucket
+			if s3.AutoCreateBucket != nil {
+				s3Vals["autoCreateBucket"] = *s3.AutoCreateBucket
+			}
 			fc["s3"] = s3Vals
 		}
 		if gw.Spec.FileStorage.FS != nil {
@@ -50,8 +59,8 @@ func specToBatchHelmValues(gw *batchv1alpha1.LLMBatchGateway, secretName string,
 		if gw.Spec.FileStorage.Retry != nil {
 			r := gw.Spec.FileStorage.Retry
 			retryVals := map[string]any{}
-			if r.MaxRetries != 0 {
-				retryVals["maxRetries"] = int64(r.MaxRetries)
+			if r.MaxRetries != nil {
+				retryVals["maxRetries"] = int64(*r.MaxRetries)
 			}
 			setIfNotEmpty(retryVals, "initialBackoff", r.InitialBackoff)
 			setIfNotEmpty(retryVals, "maxBackoff", r.MaxBackoff)
@@ -196,7 +205,6 @@ func specToBatchHelmValues(gw *batchv1alpha1.LLMBatchGateway, secretName string,
 	}
 
 	procConfig := map[string]any{}
-	// TODO: ignored by the chart now, wait batch-gateway add async dispatch support
 	setIfNotEmpty(procConfig, "dispatchMode", gw.Spec.Processor.DispatchMode)
 	if gw.Spec.Processor.GlobalInferenceGateway != nil {
 		procConfig["globalInferenceGateway"] = inferenceGatewayToMap(gw.Spec.Processor.GlobalInferenceGateway)
@@ -207,6 +215,11 @@ func specToBatchHelmValues(gw *batchv1alpha1.LLMBatchGateway, secretName string,
 			mg[model] = inferenceGatewayToMap(&spec)
 		}
 		procConfig["modelGateways"] = mg
+	}
+	if gw.Spec.Processor.AsyncConfig != nil && gw.Spec.Processor.AsyncConfig.ResultPollTimeout != "" {
+		procConfig["asyncDispatch"] = map[string]any{
+			"resultPollTimeout": gw.Spec.Processor.AsyncConfig.ResultPollTimeout,
+		}
 	}
 	if gw.Spec.Processor.Config != nil {
 		mergeProcessorConfig(procConfig, gw.Spec.Processor.Config)
@@ -315,14 +328,33 @@ func specToBatchHelmValues(gw *batchv1alpha1.LLMBatchGateway, secretName string,
 func inferenceGatewayToMap(gw *batchv1alpha1.InferenceGatewaySpec) map[string]interface{} {
 	m := map[string]interface{}{}
 	setIfNotEmpty(m, "url", gw.URL)
-	// TODO: ignored by the chart now, wait batch-gateway add async dispatch support
 	setIfNotEmpty(m, "inferencePoolName", gw.InferencePoolName)
-	setIfNotEmpty(m, "requestTimeout", gw.RequestTimeout)
+
+	// The batch-gateway processor validates that requestTimeout, maxRetries,
+	// initialBackoff, and maxBackoff are all present (non-nil) in the rendered
+	// config. Always emit these keys with sensible defaults so the chart
+	// template never renders <nil> or empty strings for them.
+	if gw.RequestTimeout != "" {
+		m["requestTimeout"] = gw.RequestTimeout
+	} else {
+		m["requestTimeout"] = "5m"
+	}
 	if gw.MaxRetries != nil {
 		m["maxRetries"] = int64(*gw.MaxRetries)
+	} else {
+		m["maxRetries"] = int64(3)
 	}
-	setIfNotEmpty(m, "initialBackoff", gw.InitialBackoff)
-	setIfNotEmpty(m, "maxBackoff", gw.MaxBackoff)
+	if gw.InitialBackoff != "" {
+		m["initialBackoff"] = gw.InitialBackoff
+	} else {
+		m["initialBackoff"] = "1s"
+	}
+	if gw.MaxBackoff != "" {
+		m["maxBackoff"] = gw.MaxBackoff
+	} else {
+		m["maxBackoff"] = "60s"
+	}
+
 	setIfNotEmpty(m, "tlsCaCertFile", gw.TLSCACertFile)
 	setIfNotEmpty(m, "inferenceObjective", gw.InferenceObjective)
 	setIfNotEmpty(m, "tlsClientCertFile", gw.TLSClientCertFile)

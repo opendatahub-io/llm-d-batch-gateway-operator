@@ -6,6 +6,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/utils/ptr"
 
 	batchv1alpha1 "github.com/opendatahub-io/llm-d-batch-gateway-operator/api/v1alpha1"
 )
@@ -159,6 +160,14 @@ func TestSpecToHelmValues(t *testing.T) {
 		dbClient := global["dbClient"].(map[string]interface{})
 		if got := dbClient["type"]; got != "postgresql" {
 			t.Errorf("dbClient.type = %v, want %q", got, "postgresql")
+		}
+	})
+
+	t.Run("global db client redis TLS not set", func(t *testing.T) {
+		global := vals["global"].(map[string]interface{})
+		dbClient := global["dbClient"].(map[string]interface{})
+		if _, ok := dbClient["redis"]; ok {
+			t.Error("dbClient.redis should not be present when RedisClient is nil")
 		}
 	})
 
@@ -476,7 +485,7 @@ func TestSpecToHelmValues_FSStorage(t *testing.T) {
 			ClaimName: "my-pvc",
 		},
 		Retry: &batchv1alpha1.FileRetrySpec{
-			MaxRetries:     5,
+			MaxRetries:     ptr.To(int32(5)),
 			InitialBackoff: "500ms",
 			MaxBackoff:     "30s",
 		},
@@ -881,6 +890,56 @@ func TestSpecToHelmValues_InferenceGatewayMaxRetries(t *testing.T) {
 	}
 }
 
+func TestSpecToHelmValues_RedisTLS(t *testing.T) {
+	gw := minimalGateway()
+	gw.Spec.Redis = &batchv1alpha1.RedisClientSpec{
+		EnableTLS: true,
+		Insecure:  true,
+	}
+
+	vals := specToBatchHelmValues(gw, testSecretName(gw), testImages())
+
+	global := vals["global"].(map[string]interface{})
+	dbClient := global["dbClient"].(map[string]interface{})
+	redis := dbClient["redis"].(map[string]interface{})
+	if got := redis["enableTLS"]; got != true {
+		t.Errorf("dbClient.redis.enableTLS = %v, want true", got)
+	}
+	if got := redis["insecure"]; got != true {
+		t.Errorf("dbClient.redis.insecure = %v, want true", got)
+	}
+}
+
+func TestSpecToHelmValues_InferenceGatewayDefaults(t *testing.T) {
+	gw := minimalGateway()
+	gw.Spec.Processor.GlobalInferenceGateway = &batchv1alpha1.InferenceGatewaySpec{
+		URL: "http://gw:8000",
+	}
+
+	vals := specToBatchHelmValues(gw, testSecretName(gw), testImages())
+
+	processor := vals["processor"].(map[string]interface{})
+	config := processor["config"].(map[string]interface{})
+	gig := config["globalInferenceGateway"].(map[string]interface{})
+
+	checks := map[string]interface{}{
+		"maxRetries":     int64(3),
+		"requestTimeout": "5m",
+		"initialBackoff": "1s",
+		"maxBackoff":     "60s",
+	}
+	for key, want := range checks {
+		got, exists := gig[key]
+		if !exists {
+			t.Errorf("%s must always be present to avoid <nil>/empty rendering in Helm templates", key)
+			continue
+		}
+		if got != want {
+			t.Errorf("%s = %v, want %v when field is unset", key, got, want)
+		}
+	}
+}
+
 func TestSpecToHelmValues_OmitsTLSInsecureSkipVerify(t *testing.T) {
 	gw := minimalGateway()
 	gw.Spec.Processor.GlobalInferenceGateway = &batchv1alpha1.InferenceGatewaySpec{
@@ -1023,6 +1082,37 @@ func TestSpecToHelmValues_SendFairnessHeader(t *testing.T) {
 	config := processor["config"].(map[string]interface{})
 	if got := config["sendFairnessHeader"]; got != true {
 		t.Errorf("sendFairnessHeader = %v, want true", got)
+	}
+}
+
+func TestSpecToHelmValues_AsyncDispatchResultPollTimeout(t *testing.T) {
+	gw := minimalGateway()
+	gw.Spec.Processor.AsyncConfig = &batchv1alpha1.AsyncProcessorSpec{
+		ResultPollTimeout: "45s",
+	}
+
+	vals := specToBatchHelmValues(gw, testSecretName(gw), testImages())
+
+	processor := vals["processor"].(map[string]interface{})
+	config := processor["config"].(map[string]interface{})
+	ad, ok := config["asyncDispatch"].(map[string]any)
+	if !ok {
+		t.Fatal("processor.config.asyncDispatch not set")
+	}
+	if got := ad["resultPollTimeout"]; got != "45s" {
+		t.Errorf("asyncDispatch.resultPollTimeout = %v, want 45s", got)
+	}
+}
+
+func TestSpecToHelmValues_AsyncDispatchResultPollTimeout_Unset(t *testing.T) {
+	gw := minimalGateway()
+
+	vals := specToBatchHelmValues(gw, testSecretName(gw), testImages())
+
+	processor := vals["processor"].(map[string]interface{})
+	config := processor["config"].(map[string]interface{})
+	if _, ok := config["asyncDispatch"]; ok {
+		t.Error("processor.config.asyncDispatch should not be set when resultPollTimeout is empty")
 	}
 }
 
