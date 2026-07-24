@@ -758,6 +758,7 @@ func TestReconcile(t *testing.T) {
 			},
 			DefaultOutputExpirationSeconds: 7200,
 			EnablePprof:                    true,
+			HeartbeatInterval:              "10m",
 		}
 		if err := k8sClient.Update(ctx, gw); err != nil {
 			t.Fatalf("updating CR: %v", err)
@@ -774,6 +775,7 @@ func TestReconcile(t *testing.T) {
 		assertConfigMapContains(t, cm, "per_endpoint: 25")
 		assertConfigMapContains(t, cm, "default_output_expiration_seconds: 7200")
 		assertConfigMapContains(t, cm, "enable_pprof: true")
+		assertConfigMapContains(t, cm, `heartbeat_interval: "10m"`)
 
 		procAfter := findOwnedDeployment(ctx, t, gw, "processor")
 		checksumAfter := procAfter.Spec.Template.Annotations["checksum/config"]
@@ -806,6 +808,10 @@ func TestReconcile(t *testing.T) {
 		gw.Spec.GC.Config = &batchv1alpha1.GCConfigSpec{
 			DryRun:         true,
 			MaxConcurrency: 10,
+			Reconciler: &batchv1alpha1.ReconcilerSpec{
+				Enabled:  true,
+				Interval: "90m",
+			},
 		}
 		if err := k8sClient.Update(ctx, gw); err != nil {
 			t.Fatalf("updating CR: %v", err)
@@ -820,6 +826,8 @@ func TestReconcile(t *testing.T) {
 		assertConfigMapContains(t, cm, `interval: "1h"`)
 		assertConfigMapContains(t, cm, "dry_run: true")
 		assertConfigMapContains(t, cm, "max_concurrency: 10")
+		assertConfigMapContains(t, cm, "enabled: true")
+		assertConfigMapContains(t, cm, `interval: "90m"`)
 
 		gcAfter := findOwnedDeployment(ctx, t, gw, "gc")
 		checksumAfter := gcAfter.Spec.Template.Annotations["checksum/config"]
