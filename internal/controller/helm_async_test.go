@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	batchv1alpha1 "github.com/opendatahub-io/llm-d-batch-gateway-operator/api/v1alpha1"
+	tlspkg "github.com/opendatahub-io/llm-d-batch-gateway-operator/internal/tls"
 	corev1 "k8s.io/api/core/v1"
 )
 
@@ -292,7 +293,7 @@ func TestSpecToAsyncHelmValues_NoImagePullSecrets(t *testing.T) {
 }
 
 func TestRenderAsyncChart(t *testing.T) {
-	renderer, err := NewHelmRenderer("../../llm-d-async/charts/async-processor", testImages())
+	renderer, err := NewHelmRenderer("../../llm-d-async/charts/async-processor", testImages(), tlspkg.ProfileValues{})
 	if err != nil {
 		t.Fatalf("NewHelmRenderer() error: %v", err)
 	}

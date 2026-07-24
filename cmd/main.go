@@ -1,17 +1,20 @@
 package main
 
 import (
+	"context"
 	"flag"
 	"fmt"
 	"os"
 	"strings"
 	"time"
 
+	configv1 "github.com/openshift/api/config/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
 	"k8s.io/klog/v2"
 	ctrl "sigs.k8s.io/controller-runtime"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/healthz"
 	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
 	gatewayv1 "sigs.k8s.io/gateway-api/apis/v1"
@@ -22,6 +25,7 @@ import (
 	batchv1alpha1 "github.com/opendatahub-io/llm-d-batch-gateway-operator/api/v1alpha1"
 	"github.com/opendatahub-io/llm-d-batch-gateway-operator/internal/controller"
 	"github.com/opendatahub-io/llm-d-batch-gateway-operator/internal/monitoring"
+	tlsinit "github.com/opendatahub-io/llm-d-batch-gateway-operator/internal/tls"
 	"github.com/opendatahub-io/llm-d-batch-gateway-operator/internal/utils"
 )
 
@@ -81,6 +85,7 @@ func init() {
 	utilruntime.Must(gatewayv1.Install(scheme))
 	utilruntime.Must(gatewayv1beta1.Install(scheme))
 	utilruntime.Must(monitoringv1.AddToScheme(scheme))
+	utilruntime.Must(configv1.Install(scheme))
 }
 
 func main() {
@@ -106,10 +111,26 @@ func main() {
 	logger := klog.NewKlogr()
 	ctrl.SetLogger(logger)
 
-	mgr, err := ctrl.NewManager(ctrl.GetConfigOrDie(), ctrl.Options{
+	restConfig := ctrl.GetConfigOrDie()
+	bootstrapClient, err := client.New(restConfig, client.Options{Scheme: scheme})
+	if err != nil {
+		logger.Error(err, "unable to create bootstrap client")
+		os.Exit(1)
+	}
+
+	tlsResult, err := tlsinit.Resolve(context.Background(), bootstrapClient, logger)
+	if err != nil {
+		logger.Error(err, "unable to resolve cluster TLS profile")
+		os.Exit(1)
+	}
+
+	mgr, err := ctrl.NewManager(restConfig, ctrl.Options{
 		Scheme: scheme,
 		Metrics: metricsserver.Options{
-			BindAddress: metricsAddr,
+			BindAddress:   metricsAddr,
+			SecureServing: true,
+			CertDir:       "/tmp/k8s-metrics-server/metrics-certs",
+			TLSOpts:       tlsResult.TLSOpts,
 		},
 		HealthProbeBindAddress: probeAddr,
 		LeaderElection:         enableLeaderElection,
@@ -126,13 +147,15 @@ func main() {
 		os.Exit(1)
 	}
 
-	batchGWHelmRenderer, err := controller.NewHelmRenderer(batchGatewayChartPath, images)
+	helmTLSProfile := tlsinit.ProfileValuesFromSpec(tlsResult.Profile)
+
+	batchGWHelmRenderer, err := controller.NewHelmRenderer(batchGatewayChartPath, images, helmTLSProfile)
 	if err != nil {
 		logger.Error(err, "unable to create batch-gateway helm renderer", "batchGatewayChartPath", batchGatewayChartPath)
 		os.Exit(1)
 	}
 
-	asyncHelmRenderer, err := controller.NewHelmRenderer(asyncChartPath, images)
+	asyncHelmRenderer, err := controller.NewHelmRenderer(asyncChartPath, images, helmTLSProfile)
 	if err != nil {
 		logger.Error(err, "unable to create async helm renderer", "asyncChartPath", asyncChartPath)
 		os.Exit(1)
@@ -173,9 +196,19 @@ func main() {
 		logger.Info("POD_NAMESPACE not set, skipping metrics controller reconciliation")
 	}
 
+	ctx, cancel := context.WithCancel(ctrl.SetupSignalHandler())
+
+	if err := tlsinit.SetupWatcher(mgr, tlsResult, cancel, logger); err != nil {
+		cancel()
+		logger.Error(err, "unable to set up TLS profile watcher")
+		os.Exit(1)
+	}
+
 	logger.Info("starting manager", "version", version)
-	if err := mgr.Start(ctrl.SetupSignalHandler()); err != nil {
+	if err := mgr.Start(ctx); err != nil {
+		cancel()
 		logger.Error(err, "problem running manager")
 		os.Exit(1)
 	}
+	cancel()
 }

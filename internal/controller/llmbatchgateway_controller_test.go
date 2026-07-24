@@ -17,6 +17,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	batchv1alpha1 "github.com/opendatahub-io/llm-d-batch-gateway-operator/api/v1alpha1"
+	tlspkg "github.com/opendatahub-io/llm-d-batch-gateway-operator/internal/tls"
 )
 
 const (
@@ -60,7 +61,7 @@ func newTestGateway(name string) *batchv1alpha1.LLMBatchGateway {
 func TestReconcile(t *testing.T) {
 	ctx := context.Background()
 
-	batchGWHelmRenderer, err := NewHelmRenderer("../../batch-gateway/charts/batch-gateway", testImages())
+	batchGWHelmRenderer, err := NewHelmRenderer("../../batch-gateway/charts/batch-gateway", testImages(), tlspkg.ProfileValues{})
 	if err != nil {
 		t.Fatalf("NewHelmRenderer() error: %v", err)
 	}
@@ -908,11 +909,11 @@ func newTestAsyncGateway(name string) *batchv1alpha1.LLMBatchGateway {
 func TestReconcileAsync(t *testing.T) {
 	ctx := context.Background()
 
-	batchGWHelmRenderer, err := NewHelmRenderer("../../batch-gateway/charts/batch-gateway", testImages())
+	batchGWHelmRenderer, err := NewHelmRenderer("../../batch-gateway/charts/batch-gateway", testImages(), tlspkg.ProfileValues{})
 	if err != nil {
 		t.Fatalf("NewHelmRenderer(batch) error: %v", err)
 	}
-	asyncHelmRenderer, err := NewHelmRenderer("../../llm-d-async/charts/async-processor", testImages())
+	asyncHelmRenderer, err := NewHelmRenderer("../../llm-d-async/charts/async-processor", testImages(), tlspkg.ProfileValues{})
 	if err != nil {
 		t.Fatalf("NewHelmRenderer(async) error: %v", err)
 	}
@@ -1066,7 +1067,7 @@ func isOwnedByUID(refs []metav1.OwnerReference, uid types.UID) bool {
 func TestReconcileTimeout(t *testing.T) {
 	ctx := context.Background()
 
-	batchGWHelmRenderer, err := NewHelmRenderer("../../batch-gateway/charts/batch-gateway", testImages())
+	batchGWHelmRenderer, err := NewHelmRenderer("../../batch-gateway/charts/batch-gateway", testImages(), tlspkg.ProfileValues{})
 	if err != nil {
 		t.Fatalf("NewHelmRenderer() error: %v", err)
 	}

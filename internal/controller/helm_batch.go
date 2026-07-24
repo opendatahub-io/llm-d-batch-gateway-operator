@@ -5,13 +5,14 @@ import (
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 
 	batchv1alpha1 "github.com/opendatahub-io/llm-d-batch-gateway-operator/api/v1alpha1"
+	tlspkg "github.com/opendatahub-io/llm-d-batch-gateway-operator/internal/tls"
 )
 
 func (h *HelmRenderer) RenderBatchChart(gw *batchv1alpha1.LLMBatchGateway, secretName string) ([]*unstructured.Unstructured, error) {
-	return h.renderChart(gw, specToBatchHelmValues(gw, secretName, h.images), nil)
+	return h.renderChart(gw, specToBatchHelmValues(gw, secretName, h.images, h.tlsProfile), nil)
 }
 
-func specToBatchHelmValues(gw *batchv1alpha1.LLMBatchGateway, secretName string, images ComponentImages) map[string]any {
+func specToBatchHelmValues(gw *batchv1alpha1.LLMBatchGateway, secretName string, images ComponentImages, tlsProfile tlspkg.ProfileValues) map[string]any {
 	vals := map[string]any{}
 
 	// --- Global ---
@@ -125,10 +126,9 @@ func specToBatchHelmValues(gw *batchv1alpha1.LLMBatchGateway, secretName string,
 	}
 
 	// TLS
+	tls := map[string]any{}
 	if gw.Spec.TLS != nil && gw.Spec.TLS.Enabled {
-		tls := map[string]any{
-			"enabled": true,
-		}
+		tls["enabled"] = true
 		if gw.Spec.TLS.SecretName != "" {
 			tls["secretName"] = gw.Spec.TLS.SecretName
 		}
@@ -143,6 +143,11 @@ func specToBatchHelmValues(gw *batchv1alpha1.LLMBatchGateway, secretName string,
 			}
 			tls["certManager"] = cm
 		}
+	}
+	setIfNotEmpty(tls, "minVersion", tlsProfile.MinVersion)
+	setIfNotEmpty(tls, "cipherSuites", tlsProfile.CipherSuites)
+	setIfNotEmpty(tls, "nextProtos", tlsProfile.NextProtos)
+	if len(tls) > 0 {
 		apiserver["tls"] = tls
 	}
 
