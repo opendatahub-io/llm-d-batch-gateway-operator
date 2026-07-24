@@ -2,8 +2,6 @@ package main
 
 import (
 	"context"
-	"crypto/tls"
-	"errors"
 	"flag"
 	"fmt"
 	"os"
@@ -11,9 +9,6 @@ import (
 	"time"
 
 	configv1 "github.com/openshift/api/config/v1"
-	tlspkg "github.com/openshift/controller-runtime-common/pkg/tls"
-	apierrors "k8s.io/apimachinery/pkg/api/errors"
-	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	"k8s.io/apimachinery/pkg/runtime"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
@@ -30,6 +25,7 @@ import (
 	batchv1alpha1 "github.com/opendatahub-io/llm-d-batch-gateway-operator/api/v1alpha1"
 	"github.com/opendatahub-io/llm-d-batch-gateway-operator/internal/controller"
 	"github.com/opendatahub-io/llm-d-batch-gateway-operator/internal/monitoring"
+	tlsinit "github.com/opendatahub-io/llm-d-batch-gateway-operator/internal/tls"
 	"github.com/opendatahub-io/llm-d-batch-gateway-operator/internal/utils"
 )
 
@@ -115,7 +111,6 @@ func main() {
 	logger := klog.NewKlogr()
 	ctrl.SetLogger(logger)
 
-	// Resolve the cluster TLS profile for secure metrics serving.
 	restConfig := ctrl.GetConfigOrDie()
 	bootstrapClient, err := client.New(restConfig, client.Options{Scheme: scheme})
 	if err != nil {
@@ -123,53 +118,11 @@ func main() {
 		os.Exit(1)
 	}
 
-	var tlsOpts []func(*tls.Config)
-
-	bootstrapCtx, cancelBootstrap := context.WithTimeout(context.Background(), 10*time.Second)
-
-	tlsProfileFetched := false
-	tlsProfile, err := tlspkg.FetchAPIServerTLSProfile(bootstrapCtx, bootstrapClient)
+	tlsResult, err := tlsinit.Resolve(context.Background(), bootstrapClient, logger)
 	if err != nil {
-		switch {
-		case apimeta.IsNoMatchError(err):
-			logger.Info("TLS profile not available (non-OpenShift cluster)")
-		case apierrors.IsNotFound(err):
-			logger.Info("APIServer resource not found, using defaults")
-		case apierrors.IsServiceUnavailable(err),
-			apierrors.IsTimeout(err),
-			apierrors.IsServerTimeout(err),
-			apierrors.IsTooManyRequests(err),
-			errors.Is(err, context.DeadlineExceeded):
-			logger.Info("Transient API error, using Intermediate defaults", "error", err)
-			tlsProfileFetched = true
-		default:
-			cancelBootstrap()
-			logger.Error(err, "unable to read TLS profile")
-			os.Exit(1)
-		}
-		tlsProfile = *configv1.TLSProfiles[configv1.TLSProfileIntermediateType]
-	} else {
-		tlsProfileFetched = true
+		logger.Error(err, "unable to resolve cluster TLS profile")
+		os.Exit(1)
 	}
-
-	tlsConfigFn, unsupported := tlspkg.NewTLSConfigFromProfile(tlsProfile)
-	if len(unsupported) > 0 {
-		logger.Info("TLS profile contains unsupported ciphers", "unsupported", unsupported)
-	}
-	tlsOpts = append(tlsOpts, tlsConfigFn)
-
-	tlsAdherenceFetched := false
-	tlsAdherence, adherenceErr := tlspkg.FetchAPIServerTLSAdherencePolicy(bootstrapCtx, bootstrapClient)
-	if adherenceErr != nil {
-		logger.Info("unable to fetch TLS adherence policy, watcher will retry", "error", adherenceErr)
-	} else {
-		tlsAdherenceFetched = true
-	}
-	cancelBootstrap()
-
-	tlsOpts = append(tlsOpts, func(c *tls.Config) {
-		c.NextProtos = []string{"h2", "http/1.1"}
-	})
 
 	mgr, err := ctrl.NewManager(restConfig, ctrl.Options{
 		Scheme: scheme,
@@ -177,7 +130,7 @@ func main() {
 			BindAddress:   metricsAddr,
 			SecureServing: true,
 			CertDir:       "/tmp/k8s-metrics-server/metrics-certs",
-			TLSOpts:       tlsOpts,
+			TLSOpts:       tlsResult.TLSOpts,
 		},
 		HealthProbeBindAddress: probeAddr,
 		LeaderElection:         enableLeaderElection,
@@ -194,7 +147,7 @@ func main() {
 		os.Exit(1)
 	}
 
-	helmTLSProfile := controller.TLSProfileValuesFromSpec(tlsProfile)
+	helmTLSProfile := tlsinit.ProfileValuesFromSpec(tlsResult.Profile)
 
 	batchGWHelmRenderer, err := controller.NewHelmRenderer(batchGatewayChartPath, images, helmTLSProfile)
 	if err != nil {
@@ -245,27 +198,10 @@ func main() {
 
 	ctx, cancel := context.WithCancel(ctrl.SetupSignalHandler())
 
-	if tlsProfileFetched {
-		watcher := &tlspkg.SecurityProfileWatcher{
-			Client:                mgr.GetClient(),
-			InitialTLSProfileSpec: tlsProfile,
-			OnProfileChange: func(_ context.Context, _, _ configv1.TLSProfileSpec) {
-				logger.Info("TLS profile changed, initiating shutdown to reload")
-				cancel()
-			},
-		}
-		if tlsAdherenceFetched {
-			watcher.InitialTLSAdherencePolicy = tlsAdherence
-			watcher.OnAdherencePolicyChange = func(_ context.Context, _, _ configv1.TLSAdherencePolicy) {
-				logger.Info("TLS adherence policy changed, initiating shutdown to reload")
-				cancel()
-			}
-		}
-		if err := watcher.SetupWithManager(mgr); err != nil {
-			cancel()
-			logger.Error(err, "unable to set up TLS profile watcher")
-			os.Exit(1)
-		}
+	if err := tlsinit.SetupWatcher(mgr, tlsResult, cancel, logger); err != nil {
+		cancel()
+		logger.Error(err, "unable to set up TLS profile watcher")
+		os.Exit(1)
 	}
 
 	logger.Info("starting manager", "version", version)

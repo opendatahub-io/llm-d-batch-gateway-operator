@@ -15,12 +15,13 @@ import (
 
 	batchv1alpha1 "github.com/opendatahub-io/llm-d-batch-gateway-operator/api/v1alpha1"
 	"github.com/opendatahub-io/llm-d-batch-gateway-operator/internal/monitoring"
+	tlspkg "github.com/opendatahub-io/llm-d-batch-gateway-operator/internal/tls"
 )
 
 func TestReconcileErrorMetricIncrement(t *testing.T) {
 	ctx := context.Background()
 
-	batchGWHelmRenderer, err := NewHelmRenderer("../../batch-gateway/charts/batch-gateway", testImages(), TLSProfileValues{})
+	batchGWHelmRenderer, err := NewHelmRenderer("../../batch-gateway/charts/batch-gateway", testImages(), tlspkg.ProfileValues{})
 	if err != nil {
 		t.Fatalf("NewHelmRenderer() error: %v", err)
 	}
