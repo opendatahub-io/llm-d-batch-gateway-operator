@@ -282,6 +282,13 @@ func specToBatchHelmValues(gw *batchv1alpha1.LLMBatchGateway, secretName string,
 				"verbosity": int64(gw.Spec.GC.Config.Logging.Verbosity),
 			}
 		}
+		if gw.Spec.GC.Config.Reconciler != nil {
+			reconciler := map[string]any{
+				"enabled": gw.Spec.GC.Config.Reconciler.Enabled,
+			}
+			setIfNotEmpty(reconciler, "interval", gw.Spec.GC.Config.Reconciler.Interval)
+			gcConfig["reconciler"] = reconciler
+		}
 	}
 	if len(gcCollector) > 0 {
 		gcConfig["collector"] = gcCollector
@@ -462,6 +469,7 @@ func mergeProcessorConfig(m map[string]interface{}, cfg *batchv1alpha1.Processor
 	if cfg.EnablePprof {
 		m["enablePprof"] = true
 	}
+	setIfNotEmpty(m, "heartbeatInterval", cfg.HeartbeatInterval)
 }
 
 func resourceRequirementsToMap(r *corev1.ResourceRequirements) map[string]interface{} {

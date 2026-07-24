@@ -40,6 +40,7 @@ type LLMBatchGatewayList struct {
 
 // LLMBatchGatewaySpec defines the desired state of the batch gateway deployment.
 // +kubebuilder:validation:XValidation:rule="size(self.secretRef.name) > 0",message="spec.secretRef.name is required"
+// +kubebuilder:validation:XValidation:rule="!has(self.processor.config) || !has(self.processor.config.heartbeatInterval) || !has(self.gc.config) || !has(self.gc.config.reconciler) || !has(self.gc.config.reconciler.interval) || duration(self.processor.config.heartbeatInterval) < duration(self.gc.config.reconciler.interval)",message="processor.config.heartbeatInterval must be shorter than gc.config.reconciler.interval"
 type LLMBatchGatewaySpec struct {
 	// SecretRef references the Kubernetes Secret that holds runtime credentials
 	// (database URL, S3 keys, inference API key, etc.).
@@ -450,6 +451,14 @@ type ProcessorConfigSpec struct {
 	// EnablePprof enables the Go pprof profiling HTTP endpoints.
 	EnablePprof bool `json:"enablePprof,omitempty"`
 
+	// HeartbeatInterval is how often the processor refreshes in-flight job entries
+	// to signal liveness. Must be shorter than gc.config.reconciler.interval to
+	// prevent active jobs from being misidentified as orphans.
+	// +kubebuilder:default="5m"
+	// +kubebuilder:validation:MaxLength=32
+	// +kubebuilder:validation:Pattern=`^([0-9]+(\.[0-9]+)?(ms|s|m|h))+$`
+	HeartbeatInterval string `json:"heartbeatInterval,omitempty"`
+
 	// Logging configures log verbosity for the processor.
 	Logging *LoggingConfig `json:"logging,omitempty"`
 }
@@ -491,6 +500,23 @@ type GCConfigSpec struct {
 
 	// Logging configures log verbosity for the GC.
 	Logging *LoggingConfig `json:"logging,omitempty"`
+
+	// Reconciler configures the orphan reconciler that detects and cleans up
+	// stale jobs missed by the normal collector sweep.
+	Reconciler *ReconcilerSpec `json:"reconciler,omitempty"`
+}
+
+// ReconcilerSpec configures the GC orphan reconciler.
+type ReconcilerSpec struct {
+	// Enabled controls whether the orphan reconciler runs.
+	// +kubebuilder:default=true
+	Enabled bool `json:"enabled,omitempty"`
+
+	// Interval is both the scan frequency and the staleness threshold (e.g. "60m").
+	// +kubebuilder:default="60m"
+	// +kubebuilder:validation:MaxLength=32
+	// +kubebuilder:validation:Pattern=`^([0-9]+(\.[0-9]+)?(ms|s|m|h))+$`
+	Interval string `json:"interval,omitempty"`
 }
 
 // --- Observability ---

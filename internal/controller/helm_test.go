@@ -872,6 +872,83 @@ func TestSpecToHelmValues_GCConfig(t *testing.T) {
 	}
 }
 
+func TestSpecToHelmValues_ProcessorHeartbeatInterval(t *testing.T) {
+	gw := minimalGateway()
+	gw.Spec.Processor.Config = &batchv1alpha1.ProcessorConfigSpec{
+		HeartbeatInterval: "5m",
+	}
+
+	vals := specToBatchHelmValues(gw, testSecretName(gw), testImages())
+
+	processor := vals["processor"].(map[string]interface{})
+	config := processor["config"].(map[string]interface{})
+	if got := config["heartbeatInterval"]; got != "5m" {
+		t.Errorf("heartbeatInterval = %v, want 5m", got)
+	}
+}
+
+func TestSpecToHelmValues_GCReconciler(t *testing.T) {
+	gw := minimalGateway()
+	gw.Spec.GC.Config = &batchv1alpha1.GCConfigSpec{
+		Reconciler: &batchv1alpha1.ReconcilerSpec{
+			Enabled:  true,
+			Interval: "60m",
+		},
+	}
+
+	vals := specToBatchHelmValues(gw, testSecretName(gw), testImages())
+
+	gc := vals["gc"].(map[string]interface{})
+	config := gc["config"].(map[string]interface{})
+	reconciler, ok := config["reconciler"].(map[string]interface{})
+	if !ok {
+		t.Fatalf("reconciler not found or wrong type: %T", config["reconciler"])
+	}
+	if got := reconciler["enabled"]; got != true {
+		t.Errorf("reconciler.enabled = %v, want true", got)
+	}
+	if got := reconciler["interval"]; got != "60m" {
+		t.Errorf("reconciler.interval = %v, want 60m", got)
+	}
+}
+
+func TestSpecToHelmValues_GCReconcilerDisabled(t *testing.T) {
+	gw := minimalGateway()
+	gw.Spec.GC.Config = &batchv1alpha1.GCConfigSpec{
+		Reconciler: &batchv1alpha1.ReconcilerSpec{},
+	}
+
+	vals := specToBatchHelmValues(gw, testSecretName(gw), testImages())
+
+	gc := vals["gc"].(map[string]interface{})
+	config := gc["config"].(map[string]interface{})
+	reconciler, ok := config["reconciler"].(map[string]interface{})
+	if !ok {
+		t.Fatalf("reconciler not found or wrong type: %T", config["reconciler"])
+	}
+	if got := reconciler["enabled"]; got != false {
+		t.Errorf("reconciler.enabled = %v, want false", got)
+	}
+	if _, hasInterval := reconciler["interval"]; hasInterval {
+		t.Errorf("reconciler.interval should be absent when not set, got %v", reconciler["interval"])
+	}
+}
+
+func TestSpecToHelmValues_GCReconcilerNil(t *testing.T) {
+	gw := minimalGateway()
+	gw.Spec.GC.Config = &batchv1alpha1.GCConfigSpec{}
+
+	vals := specToBatchHelmValues(gw, testSecretName(gw), testImages())
+
+	gc := vals["gc"].(map[string]interface{})
+	if _, hasConfig := gc["config"]; hasConfig {
+		config := gc["config"].(map[string]interface{})
+		if _, hasReconciler := config["reconciler"]; hasReconciler {
+			t.Error("reconciler should not be present when Reconciler is nil")
+		}
+	}
+}
+
 func TestSpecToHelmValues_InferenceGatewayMaxRetries(t *testing.T) {
 	maxRetries := int32(3)
 	gw := minimalGateway()
