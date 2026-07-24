@@ -292,7 +292,7 @@ func TestSpecToAsyncHelmValues_NoImagePullSecrets(t *testing.T) {
 }
 
 func TestRenderAsyncChart(t *testing.T) {
-	renderer, err := NewHelmRenderer("../../llm-d-async/charts/async-processor", testImages())
+	renderer, err := NewHelmRenderer("../../llm-d-async/charts/async-processor", testImages(), TLSProfileValues{})
 	if err != nil {
 		t.Fatalf("NewHelmRenderer() error: %v", err)
 	}

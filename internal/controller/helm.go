@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	configv1 "github.com/openshift/api/config/v1"
 	"helm.sh/helm/v3/pkg/chart"
 	"helm.sh/helm/v3/pkg/chart/loader"
 	"helm.sh/helm/v3/pkg/chartutil"
@@ -34,17 +35,41 @@ type ComponentImages struct {
 	Async     string
 }
 
-type HelmRenderer struct {
-	chart  *chart.Chart
-	images ComponentImages
+// TLSProfileValues holds the resolved cluster TLS profile as strings
+// ready for injection into helm chart values.
+type TLSProfileValues struct {
+	MinVersion   string
+	CipherSuites string
+	NextProtos   string
 }
 
-func NewHelmRenderer(chartPath string, images ComponentImages) (*HelmRenderer, error) {
+// TLSProfileValuesFromSpec converts a configv1.TLSProfileSpec into
+// string values suitable for helm chart injection.
+func TLSProfileValuesFromSpec(spec configv1.TLSProfileSpec) TLSProfileValues {
+	vals := TLSProfileValues{
+		NextProtos: "h2,http/1.1",
+	}
+	if spec.MinTLSVersion != "" {
+		vals.MinVersion = string(spec.MinTLSVersion)
+	}
+	if len(spec.Ciphers) > 0 {
+		vals.CipherSuites = strings.Join(spec.Ciphers, ",")
+	}
+	return vals
+}
+
+type HelmRenderer struct {
+	chart      *chart.Chart
+	images     ComponentImages
+	tlsProfile TLSProfileValues
+}
+
+func NewHelmRenderer(chartPath string, images ComponentImages, tlsProfile TLSProfileValues) (*HelmRenderer, error) {
 	c, err := loader.Load(chartPath)
 	if err != nil {
 		return nil, fmt.Errorf("loading chart from %s: %w", chartPath, err)
 	}
-	return &HelmRenderer{chart: c, images: images}, nil
+	return &HelmRenderer{chart: c, images: images, tlsProfile: tlsProfile}, nil
 }
 
 func (h *HelmRenderer) renderChart(gw *batchv1alpha1.LLMBatchGateway, vals map[string]any, postProcess func(*unstructured.Unstructured)) ([]*unstructured.Unstructured, error) {

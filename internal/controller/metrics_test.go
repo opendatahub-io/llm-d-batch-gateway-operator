@@ -20,7 +20,7 @@ import (
 func TestReconcileErrorMetricIncrement(t *testing.T) {
 	ctx := context.Background()
 
-	batchGWHelmRenderer, err := NewHelmRenderer("../../batch-gateway/charts/batch-gateway", testImages())
+	batchGWHelmRenderer, err := NewHelmRenderer("../../batch-gateway/charts/batch-gateway", testImages(), TLSProfileValues{})
 	if err != nil {
 		t.Fatalf("NewHelmRenderer() error: %v", err)
 	}

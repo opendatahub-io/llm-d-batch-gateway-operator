@@ -1,17 +1,25 @@
 package main
 
 import (
+	"context"
+	"crypto/tls"
+	"errors"
 	"flag"
 	"fmt"
 	"os"
 	"strings"
 	"time"
 
+	configv1 "github.com/openshift/api/config/v1"
+	tlspkg "github.com/openshift/controller-runtime-common/pkg/tls"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	"k8s.io/apimachinery/pkg/runtime"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
 	"k8s.io/klog/v2"
 	ctrl "sigs.k8s.io/controller-runtime"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/healthz"
 	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
 	gatewayv1 "sigs.k8s.io/gateway-api/apis/v1"
@@ -81,6 +89,7 @@ func init() {
 	utilruntime.Must(gatewayv1.Install(scheme))
 	utilruntime.Must(gatewayv1beta1.Install(scheme))
 	utilruntime.Must(monitoringv1.AddToScheme(scheme))
+	utilruntime.Must(configv1.Install(scheme))
 }
 
 func main() {
@@ -106,10 +115,69 @@ func main() {
 	logger := klog.NewKlogr()
 	ctrl.SetLogger(logger)
 
-	mgr, err := ctrl.NewManager(ctrl.GetConfigOrDie(), ctrl.Options{
+	// Resolve the cluster TLS profile for secure metrics serving.
+	restConfig := ctrl.GetConfigOrDie()
+	bootstrapClient, err := client.New(restConfig, client.Options{Scheme: scheme})
+	if err != nil {
+		logger.Error(err, "unable to create bootstrap client")
+		os.Exit(1)
+	}
+
+	var tlsOpts []func(*tls.Config)
+
+	bootstrapCtx, cancelBootstrap := context.WithTimeout(context.Background(), 10*time.Second)
+
+	tlsProfileFetched := false
+	tlsProfile, err := tlspkg.FetchAPIServerTLSProfile(bootstrapCtx, bootstrapClient)
+	if err != nil {
+		switch {
+		case apimeta.IsNoMatchError(err):
+			logger.Info("TLS profile not available (non-OpenShift cluster)")
+		case apierrors.IsNotFound(err):
+			logger.Info("APIServer resource not found, using defaults")
+		case apierrors.IsServiceUnavailable(err),
+			apierrors.IsTimeout(err),
+			apierrors.IsServerTimeout(err),
+			apierrors.IsTooManyRequests(err),
+			errors.Is(err, context.DeadlineExceeded):
+			logger.Info("Transient API error, using Intermediate defaults", "error", err)
+			tlsProfileFetched = true
+		default:
+			cancelBootstrap()
+			logger.Error(err, "unable to read TLS profile")
+			os.Exit(1)
+		}
+		tlsProfile = *configv1.TLSProfiles[configv1.TLSProfileIntermediateType]
+	} else {
+		tlsProfileFetched = true
+	}
+
+	tlsConfigFn, unsupported := tlspkg.NewTLSConfigFromProfile(tlsProfile)
+	if len(unsupported) > 0 {
+		logger.Info("TLS profile contains unsupported ciphers", "unsupported", unsupported)
+	}
+	tlsOpts = append(tlsOpts, tlsConfigFn)
+
+	tlsAdherenceFetched := false
+	tlsAdherence, adherenceErr := tlspkg.FetchAPIServerTLSAdherencePolicy(bootstrapCtx, bootstrapClient)
+	if adherenceErr != nil {
+		logger.Info("unable to fetch TLS adherence policy, watcher will retry", "error", adherenceErr)
+	} else {
+		tlsAdherenceFetched = true
+	}
+	cancelBootstrap()
+
+	tlsOpts = append(tlsOpts, func(c *tls.Config) {
+		c.NextProtos = []string{"h2", "http/1.1"}
+	})
+
+	mgr, err := ctrl.NewManager(restConfig, ctrl.Options{
 		Scheme: scheme,
 		Metrics: metricsserver.Options{
-			BindAddress: metricsAddr,
+			BindAddress:   metricsAddr,
+			SecureServing: true,
+			CertDir:       "/tmp/k8s-metrics-server/metrics-certs",
+			TLSOpts:       tlsOpts,
 		},
 		HealthProbeBindAddress: probeAddr,
 		LeaderElection:         enableLeaderElection,
@@ -126,13 +194,15 @@ func main() {
 		os.Exit(1)
 	}
 
-	batchGWHelmRenderer, err := controller.NewHelmRenderer(batchGatewayChartPath, images)
+	helmTLSProfile := controller.TLSProfileValuesFromSpec(tlsProfile)
+
+	batchGWHelmRenderer, err := controller.NewHelmRenderer(batchGatewayChartPath, images, helmTLSProfile)
 	if err != nil {
 		logger.Error(err, "unable to create batch-gateway helm renderer", "batchGatewayChartPath", batchGatewayChartPath)
 		os.Exit(1)
 	}
 
-	asyncHelmRenderer, err := controller.NewHelmRenderer(asyncChartPath, images)
+	asyncHelmRenderer, err := controller.NewHelmRenderer(asyncChartPath, images, helmTLSProfile)
 	if err != nil {
 		logger.Error(err, "unable to create async helm renderer", "asyncChartPath", asyncChartPath)
 		os.Exit(1)
@@ -173,9 +243,36 @@ func main() {
 		logger.Info("POD_NAMESPACE not set, skipping metrics controller reconciliation")
 	}
 
+	ctx, cancel := context.WithCancel(ctrl.SetupSignalHandler())
+
+	if tlsProfileFetched {
+		watcher := &tlspkg.SecurityProfileWatcher{
+			Client:                mgr.GetClient(),
+			InitialTLSProfileSpec: tlsProfile,
+			OnProfileChange: func(_ context.Context, _, _ configv1.TLSProfileSpec) {
+				logger.Info("TLS profile changed, initiating shutdown to reload")
+				cancel()
+			},
+		}
+		if tlsAdherenceFetched {
+			watcher.InitialTLSAdherencePolicy = tlsAdherence
+			watcher.OnAdherencePolicyChange = func(_ context.Context, _, _ configv1.TLSAdherencePolicy) {
+				logger.Info("TLS adherence policy changed, initiating shutdown to reload")
+				cancel()
+			}
+		}
+		if err := watcher.SetupWithManager(mgr); err != nil {
+			cancel()
+			logger.Error(err, "unable to set up TLS profile watcher")
+			os.Exit(1)
+		}
+	}
+
 	logger.Info("starting manager", "version", version)
-	if err := mgr.Start(ctrl.SetupSignalHandler()); err != nil {
+	if err := mgr.Start(ctx); err != nil {
+		cancel()
 		logger.Error(err, "problem running manager")
 		os.Exit(1)
 	}
+	cancel()
 }

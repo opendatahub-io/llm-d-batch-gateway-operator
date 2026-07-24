@@ -43,6 +43,7 @@ func newMetricsController(t *testing.T, namespace string) *monitoring.MetricsCon
 
 func TestReconcileOperatorMonitoring(t *testing.T) {
 	const namespace = "test-ns"
+	const httpsPort = "https"
 	ctx := context.Background()
 
 	r := newMetricsController(t, namespace)
@@ -59,14 +60,19 @@ func TestReconcileOperatorMonitoring(t *testing.T) {
 		if len(svc.Spec.Ports) != 1 {
 			t.Fatalf("expected 1 port, got %d", len(svc.Spec.Ports))
 		}
-		if svc.Spec.Ports[0].Name != "https" {
-			t.Errorf("port name = %q, want %q", svc.Spec.Ports[0].Name, "https")
+		if svc.Spec.Ports[0].Name != httpsPort {
+			t.Errorf("port name = %q, want %q", svc.Spec.Ports[0].Name, httpsPort)
 		}
 		if svc.Spec.Ports[0].Port != 8443 {
 			t.Errorf("port = %d, want 8443", svc.Spec.Ports[0].Port)
 		}
 		if svc.Spec.Selector["app.kubernetes.io/name"] != utils.OperatorName {
 			t.Errorf("selector app.kubernetes.io/name = %q, want %q", svc.Spec.Selector["app.kubernetes.io/name"], utils.OperatorName)
+		}
+
+		wantAnnotation := utils.OperatorName + "-metrics-tls"
+		if got := svc.Annotations["service.beta.openshift.io/serving-cert-secret-name"]; got != wantAnnotation {
+			t.Errorf("serving-cert annotation = %q, want %q", got, wantAnnotation)
 		}
 	})
 
@@ -78,8 +84,22 @@ func TestReconcileOperatorMonitoring(t *testing.T) {
 		if len(sm.Spec.Endpoints) != 1 {
 			t.Fatalf("expected 1 endpoint, got %d", len(sm.Spec.Endpoints))
 		}
-		if sm.Spec.Endpoints[0].Port != "https" {
-			t.Errorf("endpoint port = %q, want %q", sm.Spec.Endpoints[0].Port, "https")
+		ep := sm.Spec.Endpoints[0]
+		if ep.Port != httpsPort {
+			t.Errorf("endpoint port = %q, want %q", ep.Port, httpsPort)
+		}
+		if ep.Scheme == nil || ep.Scheme.String() != httpsPort {
+			t.Errorf("endpoint scheme = %v, want https", ep.Scheme)
+		}
+		if ep.BearerTokenFile != "/var/run/secrets/kubernetes.io/serviceaccount/token" { //nolint:staticcheck // testing deprecated field
+			t.Errorf("endpoint bearerTokenFile = %q, want SA token path", ep.BearerTokenFile) //nolint:staticcheck // testing deprecated field
+		}
+		if ep.TLSConfig == nil || ep.TLSConfig.CAFile != "/etc/prometheus/configmaps/serving-certs-ca-bundle/service-ca.crt" {
+			caFile := ""
+			if ep.TLSConfig != nil {
+				caFile = ep.TLSConfig.CAFile
+			}
+			t.Errorf("endpoint TLSConfig.CAFile = %q, want service-ca.crt path", caFile)
 		}
 		if sm.Spec.Selector.MatchLabels["app.kubernetes.io/name"] != utils.OperatorName {
 			t.Errorf("selector app.kubernetes.io/name = %q, want %q", sm.Spec.Selector.MatchLabels["app.kubernetes.io/name"], utils.OperatorName)
