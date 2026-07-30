@@ -16,6 +16,7 @@ import (
 	"k8s.io/apimachinery/pkg/util/yaml"
 
 	batchv1alpha1 "github.com/opendatahub-io/llm-d-batch-gateway-operator/api/v1alpha1"
+	tlspkg "github.com/opendatahub-io/llm-d-batch-gateway-operator/internal/tls"
 )
 
 const (
@@ -35,16 +36,17 @@ type ComponentImages struct {
 }
 
 type HelmRenderer struct {
-	chart  *chart.Chart
-	images ComponentImages
+	chart      *chart.Chart
+	images     ComponentImages
+	tlsProfile tlspkg.ProfileValues
 }
 
-func NewHelmRenderer(chartPath string, images ComponentImages) (*HelmRenderer, error) {
+func NewHelmRenderer(chartPath string, images ComponentImages, tlsProfile tlspkg.ProfileValues) (*HelmRenderer, error) {
 	c, err := loader.Load(chartPath)
 	if err != nil {
 		return nil, fmt.Errorf("loading chart from %s: %w", chartPath, err)
 	}
-	return &HelmRenderer{chart: c, images: images}, nil
+	return &HelmRenderer{chart: c, images: images, tlsProfile: tlsProfile}, nil
 }
 
 func (h *HelmRenderer) renderChart(gw *batchv1alpha1.LLMBatchGateway, vals map[string]any, postProcess func(*unstructured.Unstructured)) ([]*unstructured.Unstructured, error) {

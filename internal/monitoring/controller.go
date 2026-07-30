@@ -10,6 +10,7 @@ import (
 	"k8s.io/apimachinery/pkg/util/intstr"
 	"k8s.io/client-go/tools/record"
 	"k8s.io/client-go/util/workqueue"
+	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -126,6 +127,9 @@ func (r *MetricsController) reconcileMetricsService(ctx context.Context) (*corev
 			Name:      utils.OperatorName + "-metrics",
 			Namespace: r.Namespace,
 			Labels:    operatorLabels,
+			Annotations: map[string]string{
+				"service.beta.openshift.io/serving-cert-secret-name": utils.OperatorName + "-metrics-tls",
+			},
 		},
 		Spec: corev1.ServiceSpec{
 			Ports: []corev1.ServicePort{
@@ -160,8 +164,19 @@ func (r *MetricsController) reconcileServiceMonitor(ctx context.Context) (*monit
 			},
 			Endpoints: []monitoringv1.Endpoint{
 				{
-					Port: metricsPort,
-					Path: "/metrics",
+					Port:            metricsPort,
+					Path:            "/metrics",
+					Scheme:          ptr.To(monitoringv1.SchemeHTTPS),
+					BearerTokenFile: "/var/run/secrets/kubernetes.io/serviceaccount/token", //nolint:staticcheck // Authorization field not available in this prometheus-operator version
+					HTTPConfigWithProxyAndTLSFiles: monitoringv1.HTTPConfigWithProxyAndTLSFiles{
+						HTTPConfigWithTLSFiles: monitoringv1.HTTPConfigWithTLSFiles{
+							TLSConfig: &monitoringv1.TLSConfig{
+								TLSFilesConfig: monitoringv1.TLSFilesConfig{
+									CAFile: "/etc/prometheus/configmaps/serving-certs-ca-bundle/service-ca.crt",
+								},
+							},
+						},
+					},
 				},
 			},
 		},
