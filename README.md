@@ -22,7 +22,7 @@ LLMBatchGateway CR
 
 ## 1. Prerequisites
 
-- Go 1.25+
+- Go 1.26+
 - kubectl
 - [kustomize](https://kubectl.docs.kubernetes.io/installation/kustomize/)
 - Docker or Podman
