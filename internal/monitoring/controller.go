@@ -117,6 +117,9 @@ func (r *MetricsController) SetupWithManager(mgr ctrl.Manager) error {
 	return b.Complete(r)
 }
 
+// The same Service is declared in config/manager/metrics_service.yaml so
+// service-ca can issue the serving cert before the metrics listener starts.
+// This reconcile keeps the in-cluster object from drifting after that.
 func (r *MetricsController) reconcileMetricsService(ctx context.Context) (*corev1.Service, error) {
 	svc := &corev1.Service{
 		TypeMeta: metav1.TypeMeta{

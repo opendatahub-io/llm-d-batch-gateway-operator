@@ -2,12 +2,15 @@ package monitoring_test
 
 import (
 	"context"
+	"os"
+	"path/filepath"
 	"testing"
 
 	monitoringv1 "github.com/prometheus-operator/prometheus-operator/pkg/apis/monitoring/v1"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/apimachinery/pkg/util/yaml"
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
 	"k8s.io/client-go/tools/record"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
@@ -131,4 +134,42 @@ func TestReconcileOperatorMonitoring(t *testing.T) {
 			t.Fatalf("second Reconcile() error: %v", err)
 		}
 	})
+}
+
+func TestMetricsServiceManifestMatchesReconciler(t *testing.T) {
+	data, err := os.ReadFile(filepath.Join("..", "..", "config", "manager", "metrics_service.yaml"))
+	if err != nil {
+		t.Fatalf("reading metrics Service manifest: %v", err)
+	}
+
+	var svc corev1.Service
+	if err := yaml.Unmarshal(data, &svc); err != nil {
+		t.Fatalf("decoding metrics Service manifest: %v", err)
+	}
+
+	wantName := utils.OperatorName + "-metrics"
+	if svc.Name != wantName {
+		t.Errorf("name = %q, want %q", svc.Name, wantName)
+	}
+
+	wantSecret := utils.OperatorName + "-metrics-tls"
+	if got := svc.Annotations["service.beta.openshift.io/serving-cert-secret-name"]; got != wantSecret {
+		t.Errorf("serving-cert annotation = %q, want %q", got, wantSecret)
+	}
+
+	if len(svc.Spec.Ports) != 1 {
+		t.Fatalf("expected 1 port, got %d", len(svc.Spec.Ports))
+	}
+	if svc.Spec.Ports[0].Name != "https" {
+		t.Errorf("port name = %q, want https", svc.Spec.Ports[0].Name)
+	}
+	if svc.Spec.Ports[0].Port != 8443 {
+		t.Errorf("port = %d, want 8443", svc.Spec.Ports[0].Port)
+	}
+	if svc.Spec.Selector["app.kubernetes.io/name"] != utils.OperatorName {
+		t.Errorf("selector app.kubernetes.io/name = %q, want %q", svc.Spec.Selector["app.kubernetes.io/name"], utils.OperatorName)
+	}
+	if svc.Spec.Selector["control-plane"] != "llm-d-batch-gateway-controller-manager" {
+		t.Errorf("selector control-plane = %q, want llm-d-batch-gateway-controller-manager", svc.Spec.Selector["control-plane"])
+	}
 }

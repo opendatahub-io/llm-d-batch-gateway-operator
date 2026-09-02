@@ -16,8 +16,6 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/healthz"
-	"sigs.k8s.io/controller-runtime/pkg/metrics/filters"
-	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
 	gatewayv1 "sigs.k8s.io/gateway-api/apis/v1"
 	gatewayv1beta1 "sigs.k8s.io/gateway-api/apis/v1beta1"
 
@@ -96,6 +94,8 @@ func main() {
 	var batchGatewayChartPath string
 	var asyncChartPath string
 	var metricsAddr string
+	var metricsSecure bool
+	var metricsCertPath string
 	var probeAddr string
 	var enableLeaderElection bool
 	var syncPeriod time.Duration
@@ -104,6 +104,8 @@ func main() {
 	flag.StringVar(&batchGatewayChartPath, "batch-gateway-chart-path", "/charts/batch-gateway", "Path to the batch-gateway Helm chart directory")
 	flag.StringVar(&asyncChartPath, "async-chart-path", "/charts/async-processor", "Path to the async-processor Helm chart directory")
 	flag.StringVar(&metricsAddr, "metrics-bind-address", ":8443", "Address the metrics endpoint binds to")
+	flag.BoolVar(&metricsSecure, "metrics-secure", true, "Serve metrics via HTTPS with authn/authz. Use --metrics-secure=false for HTTP on xKS.")
+	flag.StringVar(&metricsCertPath, "metrics-cert-path", "", "Directory containing the metrics server TLS cert and key. Empty uses in-memory certificates when --metrics-secure=true.")
 	flag.StringVar(&probeAddr, "health-probe-bind-address", ":8081", "Address the health probe endpoint binds to")
 	flag.BoolVar(&enableLeaderElection, "leader-elect", false, "Enable leader election for controller manager")
 	flag.DurationVar(&syncPeriod, "sync-period", syncPeriodDefault, "How often to re-sync all LLMBatchGateway resources to catch out-of-band drift")
@@ -129,14 +131,8 @@ func main() {
 	}
 
 	mgr, err := ctrl.NewManager(restConfig, ctrl.Options{
-		Scheme: scheme,
-		Metrics: metricsserver.Options{
-			BindAddress:    metricsAddr,
-			SecureServing:  true,
-			CertDir:        "/tmp/k8s-metrics-server/metrics-certs",
-			TLSOpts:        tlsResult.TLSOpts,
-			FilterProvider: filters.WithAuthenticationAndAuthorization,
-		},
+		Scheme:                 scheme,
+		Metrics:                metricsServerOptions(metricsAddr, metricsSecure, metricsCertPath, tlsResult.TLSOpts),
 		HealthProbeBindAddress: probeAddr,
 		LeaderElection:         enableLeaderElection,
 		LeaderElectionID:       utils.LeaderElectionID,
