@@ -671,6 +671,62 @@ func TestSpecToHelmValues_PerGatewayInferenceObjective(t *testing.T) {
 	}
 }
 
+func TestSpecToHelmValues_LegacyInferenceObjective(t *testing.T) {
+	tests := []struct {
+		name       string
+		global     *batchv1alpha1.InferenceGatewaySpec
+		models     map[string]batchv1alpha1.InferenceGatewaySpec
+		wantGlobal string
+		wantModels map[string]string
+	}{
+		{
+			name:       "fills global gateway",
+			global:     &batchv1alpha1.InferenceGatewaySpec{URL: "http://global:8000"},
+			wantGlobal: "batch-sheddable",
+		},
+		{
+			name:       "global gateway objective wins",
+			global:     &batchv1alpha1.InferenceGatewaySpec{URL: "http://global:8000", InferenceObjective: "own"},
+			wantGlobal: "own",
+		},
+		{
+			name: "fills model gateways that have none",
+			models: map[string]batchv1alpha1.InferenceGatewaySpec{
+				"model-a": {URL: "http://model-a:8000"},
+				"model-b": {URL: "http://model-b:8000", InferenceObjective: "own"},
+			},
+			wantModels: map[string]string{"model-a": "batch-sheddable", "model-b": "own"},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			gw := minimalGateway()
+			gw.Spec.Processor.GlobalInferenceGateway = tt.global
+			gw.Spec.Processor.ModelGateways = tt.models
+			gw.Spec.Processor.Config = &batchv1alpha1.ProcessorConfigSpec{InferenceObjective: "batch-sheddable"}
+
+			vals := specToBatchHelmValues(gw, testSecretName(gw), testImages(), tlspkg.ProfileValues{})
+			config := vals["processor"].(map[string]interface{})["config"].(map[string]interface{})
+
+			if _, exists := config["inferenceObjective"]; exists {
+				t.Errorf("processor.config.inferenceObjective should not be rendered, got %v", config["inferenceObjective"])
+			}
+			if tt.global != nil {
+				gwConfig := config["globalInferenceGateway"].(map[string]interface{})
+				if got := gwConfig["inferenceObjective"]; got != tt.wantGlobal {
+					t.Errorf("globalInferenceGateway.inferenceObjective = %v, want %s", got, tt.wantGlobal)
+				}
+			}
+			for model, want := range tt.wantModels {
+				mg := config["modelGateways"].(map[string]interface{})[model].(map[string]interface{})
+				if got := mg["inferenceObjective"]; got != want {
+					t.Errorf("modelGateways.%s.inferenceObjective = %v, want %s", model, got, want)
+				}
+			}
+		})
+	}
+}
+
 func TestSpecToHelmValues_PrometheusRule(t *testing.T) {
 	gw := minimalGateway()
 	gw.Spec.PrometheusRule = &batchv1alpha1.PrometheusRuleSpec{

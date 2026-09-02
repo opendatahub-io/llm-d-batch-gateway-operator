@@ -462,6 +462,19 @@ func mergeProcessorConfig(m map[string]interface{}, cfg *batchv1alpha1.Processor
 			m["concurrency"] = concurrency
 		}
 	}
+	legacyObjective := cfg.InferenceObjective //nolint:staticcheck // deprecated field is honored on purpose
+	if legacyObjective != "" {
+		if gw, ok := m["globalInferenceGateway"].(map[string]any); ok {
+			setDefaultObjective(gw, legacyObjective)
+		}
+		if mgs, ok := m["modelGateways"].(map[string]any); ok {
+			for _, v := range mgs {
+				if mg, ok := v.(map[string]any); ok {
+					setDefaultObjective(mg, legacyObjective)
+				}
+			}
+		}
+	}
 	if cfg.DefaultOutputExpirationSeconds != 0 {
 		m["defaultOutputExpirationSeconds"] = cfg.DefaultOutputExpirationSeconds
 	}
@@ -475,6 +488,12 @@ func mergeProcessorConfig(m map[string]interface{}, cfg *batchv1alpha1.Processor
 		m["enablePprof"] = true
 	}
 	setIfNotEmpty(m, "heartbeatInterval", cfg.HeartbeatInterval)
+}
+
+func setDefaultObjective(gw map[string]any, objective string) {
+	if _, exists := gw["inferenceObjective"]; !exists {
+		gw["inferenceObjective"] = objective
+	}
 }
 
 func resourceRequirementsToMap(r *corev1.ResourceRequirements) map[string]interface{} {

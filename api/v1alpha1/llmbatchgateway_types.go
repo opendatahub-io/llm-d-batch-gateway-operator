@@ -438,6 +438,13 @@ type ProcessorConfigSpec struct {
 	// Concurrency groups all dispatch-rate and concurrency control knobs.
 	Concurrency *ConcurrencyConfig `json:"concurrency,omitempty"`
 
+	// InferenceObjective is applied to globalInferenceGateway and to every
+	// modelGateways entry that does not set its own inferenceObjective.
+	//
+	// Deprecated: set inferenceObjective on the gateway instead.
+	// +kubebuilder:validation:MaxLength=253
+	InferenceObjective string `json:"inferenceObjective,omitempty"`
+
 	// DefaultOutputExpirationSeconds is the TTL for job output files.
 	DefaultOutputExpirationSeconds int64 `json:"defaultOutputExpirationSeconds,omitempty"`
 

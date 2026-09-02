@@ -409,7 +409,7 @@ func TestReconcile(t *testing.T) {
 			t.Errorf("observedGeneration = %d, want %d", updated.Status.ObservedGeneration, updated.Generation)
 		}
 
-		assertEvent(t, fakeRecorder, corev1.EventTypeWarning, "ValidationFailed")
+		assertWarningEvent(t, fakeRecorder, "ValidationFailed")
 	})
 
 	t.Run("sets ValidationFailed when both gateways configured", func(t *testing.T) {
@@ -487,7 +487,7 @@ func TestReconcile(t *testing.T) {
 				if updated.Status.ObservedGeneration != updated.Generation {
 					t.Errorf("observedGeneration = %d, want %d", updated.Status.ObservedGeneration, updated.Generation)
 				}
-				assertEvent(t, fakeRecorder, corev1.EventTypeWarning, reasonReferenceNotPermitted)
+				assertWarningEvent(t, fakeRecorder, reasonReferenceNotPermitted)
 				return
 			}
 		}
@@ -542,7 +542,7 @@ func TestReconcile(t *testing.T) {
 				if updated.Status.ObservedGeneration != updated.Generation {
 					t.Errorf("observedGeneration = %d, want %d", updated.Status.ObservedGeneration, updated.Generation)
 				}
-				assertEvent(t, fakeRecorder, corev1.EventTypeWarning, reasonSecretRefImmutable)
+				assertWarningEvent(t, fakeRecorder, reasonSecretRefImmutable)
 				return
 			}
 		}
@@ -783,6 +783,26 @@ func TestReconcile(t *testing.T) {
 		if checksumAfter == checksumBefore {
 			t.Error("processor deployment pod template not updated after config change")
 		}
+	})
+
+	t.Run("legacy processor.config.inferenceObjective lands on the gateway", func(t *testing.T) {
+		gw := newTestGateway("test-legacy-objective")
+		gw.Spec.Processor.Config = &batchv1alpha1.ProcessorConfigSpec{InferenceObjective: "batch-sheddable"}
+		if err := k8sClient.Create(ctx, gw); err != nil {
+			t.Fatalf("creating CR: %v", err)
+		}
+		t.Cleanup(func() { _ = k8sClient.Delete(ctx, gw) })
+
+		_, err := reconciler.Reconcile(ctx, reconcile.Request{
+			NamespacedName: types.NamespacedName{Name: gw.Name, Namespace: gw.Namespace},
+		})
+		if err != nil {
+			t.Fatalf("Reconcile() error: %v", err)
+		}
+
+		cm := getOwnedConfigMap(ctx, t, gw, "processor")
+		assertConfigMapContains(t, cm, `inference_objective: "batch-sheddable"`)
+		assertWarningEvent(t, fakeRecorder, reasonDeprecatedField)
 	})
 
 	t.Run("gc config change updates ConfigMap and Deployment", func(t *testing.T) {
@@ -1178,19 +1198,19 @@ func assertResourceValue(t *testing.T, label string, list corev1.ResourceList, n
 	}
 }
 
-// assertEvent drains the fake recorder channel and asserts that at least one
-// event contains both the expected eventType and reason substring.
-func assertEvent(t *testing.T, recorder *record.FakeRecorder, eventType, reason string) {
+// assertWarningEvent drains the fake recorder channel and asserts that at least one
+// Warning event contains the expected reason substring.
+func assertWarningEvent(t *testing.T, recorder *record.FakeRecorder, reason string) {
 	t.Helper()
 	for {
 		select {
 		case got := <-recorder.Events:
-			if strings.Contains(got, eventType) && strings.Contains(got, reason) {
+			if strings.Contains(got, corev1.EventTypeWarning) && strings.Contains(got, reason) {
 				return
 			}
 			// Drain other events that don't match (e.g. from previous subtests).
 		default:
-			t.Errorf("expected event with type %q and reason %q but none found", eventType, reason)
+			t.Errorf("expected Warning event with reason %q but none found", reason)
 			return
 		}
 	}

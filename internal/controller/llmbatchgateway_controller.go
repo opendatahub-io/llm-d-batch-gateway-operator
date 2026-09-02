@@ -54,6 +54,7 @@ const (
 
 	reasonReferenceNotPermitted = "ReferenceNotPermitted"
 	reasonSecretRefImmutable    = "SecretRefImmutable"
+	reasonDeprecatedField       = "DeprecatedField"
 )
 
 // managedGVKs must be a superset of all GVK types the Helm chart can produce.
@@ -180,6 +181,11 @@ func (r *LLMBatchGatewayReconciler) reconcile(ctx context.Context, req ctrl.Requ
 			return ctrl.Result{}, fmt.Errorf("patching status after validation failure: %w", statusErr)
 		}
 		return ctrl.Result{}, nil
+	}
+
+	if gw.Spec.Processor.Config != nil && gw.Spec.Processor.Config.InferenceObjective != "" { //nolint:staticcheck // deprecated field is honored on purpose
+		r.Recorder.Event(&gw, corev1.EventTypeWarning, reasonDeprecatedField,
+			"spec.processor.config.inferenceObjective is deprecated; set inferenceObjective on globalInferenceGateway or modelGateways.<model> instead")
 	}
 
 	// Resolve the credentials Secret, copying it into gw.Namespace when it
