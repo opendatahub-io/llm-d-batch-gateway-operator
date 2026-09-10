@@ -234,18 +234,26 @@ func waitForConditionStatus(t *testing.T, crName, namespace, conditionType, want
 }
 
 func findDeploymentByComponent(t *testing.T, namespace, instance, component string) string {
+	return findWorkloadByComponent(t, "deployment", namespace, instance, component)
+}
+
+func findStatefulSetByComponent(t *testing.T, namespace, instance, component string) string {
+	return findWorkloadByComponent(t, "statefulset", namespace, instance, component)
+}
+
+func findWorkloadByComponent(t *testing.T, resource, namespace, instance, component string) string {
 	t.Helper()
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
 	selector := fmt.Sprintf("app.kubernetes.io/instance=%s,app.kubernetes.io/component=%s", instance, component)
-	out, err := kubectl(ctx, "get", "deployment", "-n", namespace, "-l", selector, "-o", "jsonpath={.items[0].metadata.name}")
+	out, err := kubectl(ctx, "get", resource, "-n", namespace, "-l", selector, "-o", "jsonpath={.items[0].metadata.name}")
 	if err != nil {
-		t.Fatalf("finding deployment with component=%s: %v\n%s", component, err, out)
+		t.Fatalf("finding %s with component=%s: %v\n%s", resource, component, err, out)
 	}
 	name := string(out)
 	if name == "" {
-		t.Fatalf("no deployment found with labels instance=%s,component=%s", instance, component)
+		t.Fatalf("no %s found with labels instance=%s,component=%s", resource, instance, component)
 	}
 	return name
 }
@@ -268,16 +276,24 @@ func findServiceByComponent(t *testing.T, namespace, instance, component string)
 }
 
 func getDeploymentReplicas(t *testing.T, name, namespace string) int64 {
+	return getWorkloadReplicas(t, "deployment", name, namespace)
+}
+
+func getStatefulSetReplicas(t *testing.T, name, namespace string) int64 {
+	return getWorkloadReplicas(t, "statefulset", name, namespace)
+}
+
+func getWorkloadReplicas(t *testing.T, resource, name, namespace string) int64 {
 	t.Helper()
-	obj := kubectlGetJSON(t, "deployment", name, namespace)
+	obj := kubectlGetJSON(t, resource, name, namespace)
 
 	spec, ok := obj["spec"].(map[string]any)
 	if !ok {
-		t.Fatalf("deployment %s has no spec", name)
+		t.Fatalf("%s %s has no spec", resource, name)
 	}
 	replicas, ok := spec["replicas"].(float64)
 	if !ok {
-		t.Fatalf("deployment %s has no spec.replicas", name)
+		t.Fatalf("%s %s has no spec.replicas", resource, name)
 	}
 	return int64(replicas)
 }
@@ -308,8 +324,16 @@ func getConfigMapData(t *testing.T, name, namespace string) string {
 }
 
 func getDeploymentPodAnnotation(t *testing.T, name, namespace, annotation string) string {
+	return getWorkloadPodAnnotation(t, "deployment", name, namespace, annotation)
+}
+
+func getStatefulSetPodAnnotation(t *testing.T, name, namespace, annotation string) string {
+	return getWorkloadPodAnnotation(t, "statefulset", name, namespace, annotation)
+}
+
+func getWorkloadPodAnnotation(t *testing.T, resource, name, namespace, annotation string) string {
 	t.Helper()
-	obj := kubectlGetJSON(t, "deployment", name, namespace)
+	obj := kubectlGetJSON(t, resource, name, namespace)
 
 	spec, _ := obj["spec"].(map[string]any)
 	template, _ := spec["template"].(map[string]any)
@@ -320,15 +344,19 @@ func getDeploymentPodAnnotation(t *testing.T, name, namespace, annotation string
 }
 
 func getContainerResources(t *testing.T, deploymentName, namespace string) map[string]any {
+	return getWorkloadContainerResources(t, "deployment", deploymentName, namespace)
+}
+
+func getWorkloadContainerResources(t *testing.T, resource, name, namespace string) map[string]any {
 	t.Helper()
-	obj := kubectlGetJSON(t, "deployment", deploymentName, namespace)
+	obj := kubectlGetJSON(t, resource, name, namespace)
 
 	spec, _ := obj["spec"].(map[string]any)
 	template, _ := spec["template"].(map[string]any)
 	podSpec, _ := template["spec"].(map[string]any)
 	containers, _ := podSpec["containers"].([]any)
 	if len(containers) == 0 {
-		t.Fatalf("deployment %s has no containers", deploymentName)
+		t.Fatalf("%s %s has no containers", resource, name)
 	}
 	container, _ := containers[0].(map[string]any)
 	resources, _ := container["resources"].(map[string]any)

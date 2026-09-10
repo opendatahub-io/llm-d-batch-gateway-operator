@@ -10,6 +10,7 @@ import (
 	monitoringv1 "github.com/prometheus-operator/prometheus-operator/pkg/apis/monitoring/v1"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
+	rbacv1 "k8s.io/api/rbac/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -61,9 +62,12 @@ const (
 // Update this list when adding new resource types to the chart.
 var managedGVKs = []schema.GroupVersionKind{
 	{Group: "apps", Version: "v1", Kind: "Deployment"},
+	{Group: "apps", Version: "v1", Kind: "StatefulSet"},
 	{Group: "", Version: "v1", Kind: "Service"},
 	{Group: "", Version: "v1", Kind: "ConfigMap"},
 	{Group: "", Version: "v1", Kind: "ServiceAccount"},
+	{Group: "rbac.authorization.k8s.io", Version: "v1", Kind: "Role"},
+	{Group: "rbac.authorization.k8s.io", Version: "v1", Kind: "RoleBinding"},
 	{Group: "cert-manager.io", Version: "v1", Kind: "Certificate"},
 	{Group: "gateway.networking.k8s.io", Version: "v1", Kind: "HTTPRoute"},
 	{Group: "monitoring.coreos.com", Version: "v1", Kind: "ServiceMonitor"},
@@ -80,7 +84,9 @@ type resourceKey struct {
 // +kubebuilder:rbac:groups=batch.llm-d.ai,resources=llmbatchgateways,verbs=get;list;watch;update;patch
 // +kubebuilder:rbac:groups=batch.llm-d.ai,resources=llmbatchgateways/status,verbs=get;update;patch
 // +kubebuilder:rbac:groups=batch.llm-d.ai,resources=llmbatchgateways/finalizers,verbs=update
-// +kubebuilder:rbac:groups=apps,resources=deployments,verbs=get;list;watch;create;update;patch;delete
+// +kubebuilder:rbac:groups=apps,resources=deployments;statefulsets,verbs=get;list;watch;create;update;patch;delete
+// +kubebuilder:rbac:groups=rbac.authorization.k8s.io,resources=roles;rolebindings,verbs=get;list;watch;create;update;patch;delete
+// +kubebuilder:rbac:groups="",resources=pods,verbs=get;list;watch
 // +kubebuilder:rbac:groups="",resources=services;configmaps;serviceaccounts,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups="",resources=secrets,verbs=get;list;watch;create;patch
 // +kubebuilder:rbac:groups=gateway.networking.k8s.io,resources=referencegrants,verbs=get;list;watch
@@ -391,21 +397,33 @@ func (r *LLMBatchGatewayReconciler) updateStatus(ctx context.Context, gw *batchv
 			continue
 		}
 
-		status := &batchv1alpha1.ComponentReplicaStatus{
+		setComponentStatus(componentStatus, component, &batchv1alpha1.ComponentReplicaStatus{
 			Replicas:      d.Status.Replicas,
 			ReadyReplicas: d.Status.ReadyReplicas,
+		})
+	}
+
+	var statefulSets appsv1.StatefulSetList
+	if err := r.List(ctx, &statefulSets, client.InNamespace(gw.Namespace), client.MatchingLabels{
+		labelKeyInstance: gw.Name,
+	}); err != nil {
+		return fmt.Errorf("listing statefulsets: %w", err)
+	}
+	for i := range statefulSets.Items {
+		ss := &statefulSets.Items[i]
+		if !isOwnedBy(ss, gw) {
+			continue
 		}
 
-		switch component {
-		case componentAPIServer:
-			componentStatus.APIServer = status
-		case componentProcessor:
-			componentStatus.Processor = status
-		case componentGC:
-			componentStatus.GC = status
-		case componentAsyncProcessor:
-			componentStatus.AsyncProcessor = status
+		component, ok := ss.Labels[labelKeyComponent]
+		if !ok {
+			continue
 		}
+
+		setComponentStatus(componentStatus, component, &batchv1alpha1.ComponentReplicaStatus{
+			Replicas:      ss.Status.Replicas,
+			ReadyReplicas: ss.Status.ReadyReplicas,
+		})
 	}
 
 	gw.Status.ComponentStatus = componentStatus
@@ -550,9 +568,12 @@ func (r *LLMBatchGatewayReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	c := ctrl.NewControllerManagedBy(mgr).
 		For(&batchv1alpha1.LLMBatchGateway{}).
 		Owns(&appsv1.Deployment{}).
+		Owns(&appsv1.StatefulSet{}).
 		Owns(&corev1.Service{}).
 		Owns(&corev1.ConfigMap{}).
 		Owns(&corev1.ServiceAccount{}).
+		Owns(&rbacv1.Role{}).
+		Owns(&rbacv1.RoleBinding{}).
 		Watches(&corev1.Secret{}, enqueueForSecret, builder.WithPredicates(r.secretFilter))
 
 	mapper := mgr.GetRESTMapper()
@@ -611,6 +632,19 @@ func isOwnedBy(obj metav1.Object, owner *batchv1alpha1.LLMBatchGateway) bool {
 	return false
 }
 
+func setComponentStatus(componentStatus *batchv1alpha1.ComponentStatus, component string, status *batchv1alpha1.ComponentReplicaStatus) {
+	switch component {
+	case componentAPIServer:
+		componentStatus.APIServer = status
+	case componentProcessor:
+		componentStatus.Processor = status
+	case componentGC:
+		componentStatus.GC = status
+	case componentAsyncProcessor:
+		componentStatus.AsyncProcessor = status
+	}
+}
+
 func conditionStatus(ok bool) metav1.ConditionStatus {
 	if ok {
 		return metav1.ConditionTrue
@@ -634,10 +668,43 @@ func validateSpec(gw *batchv1alpha1.LLMBatchGateway) error {
 	if hasGlobal && hasModel {
 		return errors.New("processor cannot have both globalInferenceGateway and modelGateways configured")
 	}
-	if gw.Spec.Processor.DispatchMode == dispatchModeAsync && gw.Spec.Processor.AsyncConfig == nil {
+	if gw.Spec.Processor.DispatchMode != dispatchModeAsync {
+		if hasGlobal && hasQueueNames(*gw.Spec.Processor.GlobalInferenceGateway) {
+			return errors.New("processor.globalInferenceGateway.requestQueueName and resultQueueName are supported only in async modelGateways")
+		}
+		for model, gateway := range gw.Spec.Processor.ModelGateways {
+			if hasQueueNames(gateway) {
+				return fmt.Errorf("processor.modelGateways[%s].requestQueueName and resultQueueName are supported only when processor.dispatchMode is \"async\"", model)
+			}
+		}
+		return nil
+	}
+
+	if gw.Spec.Processor.AsyncConfig == nil {
 		return errors.New("asyncConfig is required when spec.processor.dispatchMode set to \"async\"")
 	}
+	if gw.Spec.Processor.AsyncConfig.ResultPollTimeout == "" {
+		return errors.New("processor.asyncConfig.resultPollTimeout is required when processor.dispatchMode is \"async\"")
+	}
+	if hasGlobal {
+		return errors.New("processor.globalInferenceGateway is not supported when processor.dispatchMode is \"async\"; use processor.modelGateways")
+	}
+	if !hasModel {
+		return errors.New("processor.modelGateways is required when processor.dispatchMode is \"async\"")
+	}
+	for model, gateway := range gw.Spec.Processor.ModelGateways {
+		if gateway.InferencePoolName == "" {
+			return fmt.Errorf("processor.modelGateways[%s].inferencePoolName is required when processor.dispatchMode is \"async\"", model)
+		}
+		if (gateway.RequestQueueName == "") != (gateway.ResultQueueName == "") {
+			return fmt.Errorf("processor.modelGateways[%s].requestQueueName and resultQueueName must both be set or both be empty", model)
+		}
+	}
 	return nil
+}
+
+func hasQueueNames(gateway batchv1alpha1.InferenceGatewaySpec) bool {
+	return gateway.RequestQueueName != "" || gateway.ResultQueueName != ""
 }
 
 func conditionMessage(ok bool, trueMsg, falseMsg string) string {
