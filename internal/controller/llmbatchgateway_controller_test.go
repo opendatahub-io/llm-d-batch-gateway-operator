@@ -1248,20 +1248,8 @@ func workloadConfigChecksum(ctx context.Context, t *testing.T, gw *batchv1alpha1
 	return d.Spec.Template.Annotations["checksum/config"]
 }
 
-// assertDeploymentReplicas verifies that the Deployment for the given component
+// assertProcessorStatefulSetReplicas verifies that the processor StatefulSet
 // has the expected replica count.
-func assertDeploymentReplicas(ctx context.Context, t *testing.T, gw *batchv1alpha1.LLMBatchGateway, component string, want int32) {
-	t.Helper()
-	d := findOwnedDeployment(ctx, t, gw, component)
-	if d.Spec.Replicas == nil || *d.Spec.Replicas != want {
-		got := int32(0)
-		if d.Spec.Replicas != nil {
-			got = *d.Spec.Replicas
-		}
-		t.Errorf("%s replicas = %d, want %d", component, got, want)
-	}
-}
-
 func assertProcessorStatefulSetReplicas(ctx context.Context, t *testing.T, gw *batchv1alpha1.LLMBatchGateway, want int32) {
 	t.Helper()
 	ss := findOwnedProcessorStatefulSet(ctx, t, gw)
