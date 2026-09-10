@@ -323,10 +323,6 @@ func getConfigMapData(t *testing.T, name, namespace string) string {
 	return configYAML
 }
 
-func getDeploymentPodAnnotation(t *testing.T, name, namespace, annotation string) string {
-	return getWorkloadPodAnnotation(t, "deployment", name, namespace, annotation)
-}
-
 func getStatefulSetPodAnnotation(t *testing.T, name, namespace, annotation string) string {
 	return getWorkloadPodAnnotation(t, "statefulset", name, namespace, annotation)
 }
@@ -341,10 +337,6 @@ func getWorkloadPodAnnotation(t *testing.T, resource, name, namespace, annotatio
 	annotations, _ := metadata["annotations"].(map[string]any)
 	val, _ := annotations[annotation].(string)
 	return val
-}
-
-func getContainerResources(t *testing.T, deploymentName, namespace string) map[string]any {
-	return getWorkloadContainerResources(t, "deployment", deploymentName, namespace)
 }
 
 func getWorkloadContainerResources(t *testing.T, resource, name, namespace string) map[string]any {
