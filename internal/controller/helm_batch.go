@@ -214,17 +214,24 @@ func specToBatchHelmValues(gw *batchv1alpha1.LLMBatchGateway, secretName string,
 	if gw.Spec.Processor.GlobalInferenceGateway != nil {
 		procConfig["globalInferenceGateway"] = inferenceGatewayToMap(gw.Spec.Processor.GlobalInferenceGateway)
 	}
-	if len(gw.Spec.Processor.ModelGateways) > 0 {
+	if gw.Spec.Processor.DispatchMode != dispatchModeAsync && len(gw.Spec.Processor.ModelGateways) > 0 {
 		mg := map[string]any{}
 		for model, spec := range gw.Spec.Processor.ModelGateways {
 			mg[model] = inferenceGatewayToMap(&spec)
 		}
 		procConfig["modelGateways"] = mg
-	}
-	if gw.Spec.Processor.AsyncConfig != nil && gw.Spec.Processor.AsyncConfig.ResultPollTimeout != "" {
-		procConfig["asyncDispatch"] = map[string]any{
+	} else if gw.Spec.Processor.DispatchMode == dispatchModeAsync && gw.Spec.Processor.AsyncConfig != nil {
+		asyncDispatch := map[string]any{
 			"resultPollTimeout": gw.Spec.Processor.AsyncConfig.ResultPollTimeout,
 		}
+		if len(gw.Spec.Processor.ModelGateways) > 0 {
+			models := map[string]any{}
+			for model, spec := range gw.Spec.Processor.ModelGateways {
+				models[model] = asyncModelGatewayToMap(&spec)
+			}
+			asyncDispatch["models"] = models
+		}
+		procConfig["asyncDispatch"] = asyncDispatch
 	}
 	if gw.Spec.Processor.Config != nil {
 		mergeProcessorConfig(procConfig, gw.Spec.Processor.Config)
@@ -374,6 +381,15 @@ func inferenceGatewayToMap(gw *batchv1alpha1.InferenceGatewaySpec) map[string]in
 	return m
 }
 
+func asyncModelGatewayToMap(gw *batchv1alpha1.InferenceGatewaySpec) map[string]interface{} {
+	m := map[string]interface{}{}
+	setIfNotEmpty(m, "inferencePoolName", gw.InferencePoolName)
+	setIfNotEmpty(m, "inferenceObjective", gw.InferenceObjective)
+	setIfNotEmpty(m, "requestQueueName", gw.RequestQueueName)
+	setIfNotEmpty(m, "resultQueueName", gw.ResultQueueName)
+	return m
+}
+
 func apiServerConfigToMap(cfg *batchv1alpha1.APIServerConfigSpec) map[string]interface{} {
 	m := map[string]interface{}{}
 	if cfg.Port != 0 {
@@ -474,6 +490,15 @@ func mergeProcessorConfig(m map[string]interface{}, cfg *batchv1alpha1.Processor
 				}
 			}
 		}
+		if ad, ok := m["asyncDispatch"].(map[string]any); ok {
+			if models, ok := ad["models"].(map[string]any); ok {
+				for _, v := range models {
+					if model, ok := v.(map[string]any); ok {
+						setDefaultObjective(model, legacyObjective)
+					}
+				}
+			}
+		}
 	}
 	if cfg.DefaultOutputExpirationSeconds != 0 {
 		m["defaultOutputExpirationSeconds"] = cfg.DefaultOutputExpirationSeconds
@@ -484,10 +509,10 @@ func mergeProcessorConfig(m map[string]interface{}, cfg *batchv1alpha1.Processor
 	if cfg.SendFairnessHeader != nil {
 		m["sendFairnessHeader"] = *cfg.SendFairnessHeader
 	}
+	setIfNotEmpty(m, "routeKeyMethod", cfg.RouteKeyMethod)
 	if cfg.EnablePprof {
 		m["enablePprof"] = true
 	}
-	setIfNotEmpty(m, "heartbeatInterval", cfg.HeartbeatInterval)
 }
 
 func setDefaultObjective(gw map[string]any, objective string) {

@@ -40,7 +40,6 @@ type LLMBatchGatewayList struct {
 
 // LLMBatchGatewaySpec defines the desired state of the batch gateway deployment.
 // +kubebuilder:validation:XValidation:rule="size(self.secretRef.name) > 0",message="spec.secretRef.name is required"
-// +kubebuilder:validation:XValidation:rule="!has(self.processor.config) || !has(self.processor.config.heartbeatInterval) || !has(self.gc.config) || !has(self.gc.config.reconciler) || !has(self.gc.config.reconciler.interval) || duration(self.processor.config.heartbeatInterval) < duration(self.gc.config.reconciler.interval)",message="processor.config.heartbeatInterval must be shorter than gc.config.reconciler.interval"
 type LLMBatchGatewaySpec struct {
 	// SecretRef references the Kubernetes Secret that holds runtime credentials
 	// (database URL, S3 keys, inference API key, etc.).
@@ -383,6 +382,16 @@ type InferenceGatewaySpec struct {
 	// TLSClientKeyFile is the path to the client TLS private key file for mutual TLS.
 	// +kubebuilder:validation:MaxLength=4096
 	TLSClientKeyFile string `json:"tlsClientKeyFile,omitempty"`
+
+	// RequestQueueName is the Redis request queue used in async dispatch mode.
+	// Set together with resultQueueName to override the queue derived from inferencePoolName.
+	// +kubebuilder:validation:MaxLength=253
+	RequestQueueName string `json:"requestQueueName,omitempty"`
+
+	// ResultQueueName is the Redis result queue base used in async dispatch mode.
+	// Set together with requestQueueName.
+	// +kubebuilder:validation:MaxLength=253
+	ResultQueueName string `json:"resultQueueName,omitempty"`
 }
 
 // AIMDConfig holds parameters for Additive Increase / Multiplicative Decrease
@@ -455,16 +464,13 @@ type ProcessorConfigSpec struct {
 	// to the inference gateway for fair scheduling across tenants.
 	SendFairnessHeader *bool `json:"sendFairnessHeader,omitempty"`
 
+	// RouteKeyMethod controls how modelGateways lookup keys are built.
+	// Empty uses the model ID. "tenant" uses "<tenantID>/<modelID>".
+	// +kubebuilder:validation:Enum="";tenant
+	RouteKeyMethod string `json:"routeKeyMethod,omitempty"`
+
 	// EnablePprof enables the Go pprof profiling HTTP endpoints.
 	EnablePprof bool `json:"enablePprof,omitempty"`
-
-	// HeartbeatInterval is how often the processor refreshes in-flight job entries
-	// to signal liveness. Must be shorter than gc.config.reconciler.interval to
-	// prevent active jobs from being misidentified as orphans.
-	// +kubebuilder:default="5m"
-	// +kubebuilder:validation:MaxLength=32
-	// +kubebuilder:validation:Pattern=`^([0-9]+(\.[0-9]+)?(ms|s|m|h))+$`
-	HeartbeatInterval string `json:"heartbeatInterval,omitempty"`
 
 	// Logging configures log verbosity for the processor.
 	Logging *LoggingConfig `json:"logging,omitempty"`
@@ -664,7 +670,7 @@ type ComponentStatus struct {
 	// APIServer reports the replica status of the API server Deployment.
 	APIServer *ComponentReplicaStatus `json:"apiServer,omitempty"`
 
-	// Processor reports the replica status of the processor Deployment.
+	// Processor reports the replica status of the processor StatefulSet.
 	Processor *ComponentReplicaStatus `json:"processor,omitempty"`
 
 	// GC reports the replica status of the garbage-collector Deployment.
@@ -676,7 +682,7 @@ type ComponentStatus struct {
 	AsyncProcessor *ComponentReplicaStatus `json:"asyncProcessor,omitempty"`
 }
 
-// ComponentReplicaStatus reports the desired and ready replica counts for a Deployment.
+// ComponentReplicaStatus reports the desired and ready replica counts for a workload.
 type ComponentReplicaStatus struct {
 	// Replicas is the total number of non-terminated pods.
 	Replicas int32 `json:"replicas"`

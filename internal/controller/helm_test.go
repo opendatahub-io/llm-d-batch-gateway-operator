@@ -375,8 +375,14 @@ func TestRenderBatchChart(t *testing.T) {
 	}
 
 	t.Run("renders deployments", func(t *testing.T) {
-		if got := kinds["Deployment"]; got != 3 {
-			t.Errorf("Deployment count = %d, want 3", got)
+		if got := kinds["Deployment"]; got != 2 {
+			t.Errorf("Deployment count = %d, want 2", got)
+		}
+	})
+
+	t.Run("renders processor statefulset", func(t *testing.T) {
+		if got := kinds["StatefulSet"]; got != 1 {
+			t.Errorf("StatefulSet count = %d, want 1", got)
 		}
 	})
 
@@ -393,8 +399,8 @@ func TestRenderBatchChart(t *testing.T) {
 	})
 
 	t.Run("renders service", func(t *testing.T) {
-		if got := kinds["Service"]; got != 1 {
-			t.Errorf("Service count = %d, want 1", got)
+		if got := kinds["Service"]; got != 2 {
+			t.Errorf("Service count = %d, want 2", got)
 		}
 	})
 
@@ -636,6 +642,52 @@ func TestSpecToHelmValues_ModelGateways(t *testing.T) {
 	if got := ma["inferenceObjective"]; got != "latency" {
 		t.Errorf("modelGateways.model-a.inferenceObjective = %v, want latency", got)
 	}
+}
+
+func TestSpecToHelmValues_SyncGatewaysOmitQueueNames(t *testing.T) {
+	// validateSpec rejects these fields outside async mode; this covers the pure mapper.
+	t.Run("globalInferenceGateway", func(t *testing.T) {
+		gw := minimalGateway()
+		gw.Spec.Processor.GlobalInferenceGateway.RequestQueueName = "requests"
+		gw.Spec.Processor.GlobalInferenceGateway.ResultQueueName = "results"
+
+		vals := specToBatchHelmValues(gw, testSecretName(gw), testImages(), tlspkg.ProfileValues{})
+
+		processor := vals["processor"].(map[string]interface{})
+		config := processor["config"].(map[string]interface{})
+		global := config["globalInferenceGateway"].(map[string]interface{})
+		if _, ok := global["requestQueueName"]; ok {
+			t.Error("globalInferenceGateway.requestQueueName should not be rendered")
+		}
+		if _, ok := global["resultQueueName"]; ok {
+			t.Error("globalInferenceGateway.resultQueueName should not be rendered")
+		}
+	})
+
+	t.Run("modelGateways", func(t *testing.T) {
+		gw := minimalGateway()
+		gw.Spec.Processor.GlobalInferenceGateway = nil
+		gw.Spec.Processor.ModelGateways = map[string]batchv1alpha1.InferenceGatewaySpec{
+			"model-a": {
+				URL:              "http://model-a:8000",
+				RequestQueueName: "requests",
+				ResultQueueName:  "results",
+			},
+		}
+
+		vals := specToBatchHelmValues(gw, testSecretName(gw), testImages(), tlspkg.ProfileValues{})
+
+		processor := vals["processor"].(map[string]interface{})
+		config := processor["config"].(map[string]interface{})
+		models := config["modelGateways"].(map[string]interface{})
+		model := models["model-a"].(map[string]interface{})
+		if _, ok := model["requestQueueName"]; ok {
+			t.Error("modelGateways.model-a.requestQueueName should not be rendered")
+		}
+		if _, ok := model["resultQueueName"]; ok {
+			t.Error("modelGateways.model-a.resultQueueName should not be rendered")
+		}
+	})
 }
 
 func TestSpecToHelmValues_PerGatewayInferenceObjective(t *testing.T) {
@@ -929,21 +981,6 @@ func TestSpecToHelmValues_GCConfig(t *testing.T) {
 	}
 }
 
-func TestSpecToHelmValues_ProcessorHeartbeatInterval(t *testing.T) {
-	gw := minimalGateway()
-	gw.Spec.Processor.Config = &batchv1alpha1.ProcessorConfigSpec{
-		HeartbeatInterval: "5m",
-	}
-
-	vals := specToBatchHelmValues(gw, testSecretName(gw), testImages(), tlspkg.ProfileValues{})
-
-	processor := vals["processor"].(map[string]interface{})
-	config := processor["config"].(map[string]interface{})
-	if got := config["heartbeatInterval"]; got != "5m" {
-		t.Errorf("heartbeatInterval = %v, want 5m", got)
-	}
-}
-
 func TestSpecToHelmValues_GCReconciler(t *testing.T) {
 	gw := minimalGateway()
 	gw.Spec.GC.Config = &batchv1alpha1.GCConfigSpec{
@@ -1219,8 +1256,33 @@ func TestSpecToHelmValues_SendFairnessHeader(t *testing.T) {
 	}
 }
 
-func TestSpecToHelmValues_AsyncDispatchResultPollTimeout(t *testing.T) {
+func TestSpecToHelmValues_RouteKeyMethod(t *testing.T) {
 	gw := minimalGateway()
+	gw.Spec.Processor.Config = &batchv1alpha1.ProcessorConfigSpec{
+		RouteKeyMethod: "tenant",
+	}
+
+	vals := specToBatchHelmValues(gw, testSecretName(gw), testImages(), tlspkg.ProfileValues{})
+
+	processor := vals["processor"].(map[string]interface{})
+	config := processor["config"].(map[string]interface{})
+	if got := config["routeKeyMethod"]; got != "tenant" {
+		t.Errorf("routeKeyMethod = %v, want tenant", got)
+	}
+}
+
+func TestSpecToHelmValues_AsyncDispatchModels(t *testing.T) {
+	gw := minimalGateway()
+	gw.Spec.Processor.DispatchMode = dispatchModeAsync
+	gw.Spec.Processor.GlobalInferenceGateway = nil
+	gw.Spec.Processor.ModelGateways = map[string]batchv1alpha1.InferenceGatewaySpec{
+		"model-a": {
+			InferencePoolName:  "pool-a",
+			InferenceObjective: "batch-a",
+			RequestQueueName:   "llm-d-async:requests:pool-a",
+			ResultQueueName:    "llm-d-async:results:pool-a",
+		},
+	}
 	gw.Spec.Processor.AsyncConfig = &batchv1alpha1.AsyncProcessorSpec{
 		ResultPollTimeout: "45s",
 	}
@@ -1236,6 +1298,23 @@ func TestSpecToHelmValues_AsyncDispatchResultPollTimeout(t *testing.T) {
 	if got := ad["resultPollTimeout"]; got != "45s" {
 		t.Errorf("asyncDispatch.resultPollTimeout = %v, want 45s", got)
 	}
+	models := ad["models"].(map[string]any)
+	model := models["model-a"].(map[string]any)
+	if got := model["inferencePoolName"]; got != "pool-a" {
+		t.Errorf("asyncDispatch.models.model-a.inferencePoolName = %v, want pool-a", got)
+	}
+	if got := model["inferenceObjective"]; got != "batch-a" {
+		t.Errorf("asyncDispatch.models.model-a.inferenceObjective = %v, want batch-a", got)
+	}
+	if got := model["requestQueueName"]; got != "llm-d-async:requests:pool-a" {
+		t.Errorf("asyncDispatch.models.model-a.requestQueueName = %v", got)
+	}
+	if got := model["resultQueueName"]; got != "llm-d-async:results:pool-a" {
+		t.Errorf("asyncDispatch.models.model-a.resultQueueName = %v", got)
+	}
+	if _, ok := config["modelGateways"]; ok {
+		t.Error("processor.config.modelGateways should not be rendered in async mode")
+	}
 }
 
 func TestSpecToHelmValues_AsyncDispatchResultPollTimeout_Unset(t *testing.T) {
@@ -1247,6 +1326,22 @@ func TestSpecToHelmValues_AsyncDispatchResultPollTimeout_Unset(t *testing.T) {
 	config := processor["config"].(map[string]interface{})
 	if _, ok := config["asyncDispatch"]; ok {
 		t.Error("processor.config.asyncDispatch should not be set when resultPollTimeout is empty")
+	}
+}
+
+func TestSpecToHelmValues_AsyncConfigIgnoredInSyncMode(t *testing.T) {
+	gw := minimalGateway()
+	gw.Spec.Processor.DispatchMode = "sync"
+	gw.Spec.Processor.AsyncConfig = &batchv1alpha1.AsyncProcessorSpec{
+		ResultPollTimeout: "45s",
+	}
+
+	vals := specToBatchHelmValues(gw, testSecretName(gw), testImages(), tlspkg.ProfileValues{})
+
+	processor := vals["processor"].(map[string]interface{})
+	config := processor["config"].(map[string]interface{})
+	if _, ok := config["asyncDispatch"]; ok {
+		t.Error("processor.config.asyncDispatch should not be set in sync mode")
 	}
 }
 

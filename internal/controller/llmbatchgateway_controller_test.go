@@ -58,6 +58,36 @@ func newTestGateway(name string) *batchv1alpha1.LLMBatchGateway {
 	}
 }
 
+func TestValidateSpecRejectsQueueNamesOutsideAsyncMode(t *testing.T) {
+	t.Run("globalInferenceGateway", func(t *testing.T) {
+		gw := newTestGateway("test-sync-global-queues")
+		gw.Spec.Processor.GlobalInferenceGateway.RequestQueueName = "requests"
+		gw.Spec.Processor.GlobalInferenceGateway.ResultQueueName = "results"
+
+		err := validateSpec(gw)
+		if err == nil || !strings.Contains(err.Error(), "processor.globalInferenceGateway.requestQueueName") {
+			t.Fatalf("validateSpec() error = %v, want globalInferenceGateway queue name error", err)
+		}
+	})
+
+	t.Run("modelGateways", func(t *testing.T) {
+		gw := newTestGateway("test-sync-model-queues")
+		gw.Spec.Processor.GlobalInferenceGateway = nil
+		gw.Spec.Processor.ModelGateways = map[string]batchv1alpha1.InferenceGatewaySpec{
+			"model-a": {
+				URL:              "http://model-a:8000",
+				RequestQueueName: "requests",
+				ResultQueueName:  "results",
+			},
+		}
+
+		err := validateSpec(gw)
+		if err == nil || !strings.Contains(err.Error(), "processor.modelGateways[model-a].requestQueueName") {
+			t.Fatalf("validateSpec() error = %v, want modelGateways queue name error", err)
+		}
+	})
+}
+
 func TestReconcile(t *testing.T) {
 	ctx := context.Background()
 
@@ -117,8 +147,24 @@ func TestReconcile(t *testing.T) {
 					deployCount++
 				}
 			}
-			if deployCount != 3 {
-				t.Errorf("deployment count = %d, want 3", deployCount)
+			if deployCount != 2 {
+				t.Errorf("deployment count = %d, want 2", deployCount)
+			}
+		})
+
+		t.Run("processor statefulset", func(t *testing.T) {
+			var statefulSetList appsv1.StatefulSetList
+			if err := k8sClient.List(ctx, &statefulSetList); err != nil {
+				t.Fatalf("listing statefulsets: %v", err)
+			}
+			count := 0
+			for _, ss := range statefulSetList.Items {
+				if isOwnedByUID(ss.OwnerReferences, gw.UID) {
+					count++
+				}
+			}
+			if count != 1 {
+				t.Errorf("statefulset count = %d, want 1", count)
 			}
 		})
 
@@ -165,8 +211,8 @@ func TestReconcile(t *testing.T) {
 					svcCount++
 				}
 			}
-			if svcCount != 1 {
-				t.Errorf("service count = %d, want 1", svcCount)
+			if svcCount != 2 {
+				t.Errorf("service count = %d, want 2", svcCount)
 			}
 		})
 	})
@@ -576,7 +622,7 @@ func TestReconcile(t *testing.T) {
 			t.Fatalf("second Reconcile() error: %v", err)
 		}
 
-		assertDeploymentReplicas(ctx, t, gw, "processor", 5)
+		assertProcessorStatefulSetReplicas(ctx, t, gw, 5)
 	})
 
 	t.Run("updates apiserver resources on spec change", func(t *testing.T) {
@@ -627,7 +673,7 @@ func TestReconcile(t *testing.T) {
 		assertResourceValue(t, "apiserver limits.memory", res.Limits, corev1.ResourceMemory, "512Mi")
 	})
 
-	t.Run("dbBackend change updates all ConfigMaps and Deployments", func(t *testing.T) {
+	t.Run("dbBackend change updates all ConfigMaps and workloads", func(t *testing.T) {
 		gw := newTestGateway("test-dbbackend")
 		if err := k8sClient.Create(ctx, gw); err != nil {
 			t.Fatalf("creating CR: %v", err)
@@ -642,10 +688,12 @@ func TestReconcile(t *testing.T) {
 		}
 
 		checksumsBefore := map[string]string{}
-		for _, component := range []string{"apiserver", "processor", "gc"} {
+		for _, component := range []string{"apiserver", "gc"} {
 			d := findOwnedDeployment(ctx, t, gw, component)
 			checksumsBefore[component] = d.Spec.Template.Annotations["checksum/config"]
 		}
+		procBefore := findOwnedProcessorStatefulSet(ctx, t, gw)
+		checksumsBefore["processor"] = procBefore.Spec.Template.Annotations["checksum/config"]
 
 		if err := k8sClient.Get(ctx, nn, gw); err != nil {
 			t.Fatalf("getting CR for update: %v", err)
@@ -664,10 +712,9 @@ func TestReconcile(t *testing.T) {
 			cm := getOwnedConfigMap(ctx, t, gw, component)
 			assertConfigMapContains(t, cm, `type: "redis"`)
 
-			d := findOwnedDeployment(ctx, t, gw, component)
-			after := d.Spec.Template.Annotations["checksum/config"]
+			after := workloadConfigChecksum(ctx, t, gw, component)
 			if after == checksumsBefore[component] {
-				t.Errorf("%s deployment pod template not updated after dbBackend change", component)
+				t.Errorf("%s pod template not updated after dbBackend change", component)
 			}
 		}
 	})
@@ -731,7 +778,7 @@ func TestReconcile(t *testing.T) {
 		}
 	})
 
-	t.Run("processor config change updates ConfigMap and Deployment", func(t *testing.T) {
+	t.Run("processor config change updates ConfigMap and StatefulSet", func(t *testing.T) {
 		gw := newTestGateway("test-proc-config")
 		if err := k8sClient.Create(ctx, gw); err != nil {
 			t.Fatalf("creating CR: %v", err)
@@ -745,7 +792,7 @@ func TestReconcile(t *testing.T) {
 			t.Fatalf("first Reconcile() error: %v", err)
 		}
 
-		procBefore := findOwnedDeployment(ctx, t, gw, "processor")
+		procBefore := findOwnedProcessorStatefulSet(ctx, t, gw)
 		checksumBefore := procBefore.Spec.Template.Annotations["checksum/config"]
 
 		if err := k8sClient.Get(ctx, nn, gw); err != nil {
@@ -759,7 +806,6 @@ func TestReconcile(t *testing.T) {
 			},
 			DefaultOutputExpirationSeconds: 7200,
 			EnablePprof:                    true,
-			HeartbeatInterval:              "10m",
 		}
 		if err := k8sClient.Update(ctx, gw); err != nil {
 			t.Fatalf("updating CR: %v", err)
@@ -776,12 +822,11 @@ func TestReconcile(t *testing.T) {
 		assertConfigMapContains(t, cm, "per_endpoint: 25")
 		assertConfigMapContains(t, cm, "default_output_expiration_seconds: 7200")
 		assertConfigMapContains(t, cm, "enable_pprof: true")
-		assertConfigMapContains(t, cm, `heartbeat_interval: "10m"`)
 
-		procAfter := findOwnedDeployment(ctx, t, gw, "processor")
+		procAfter := findOwnedProcessorStatefulSet(ctx, t, gw)
 		checksumAfter := procAfter.Spec.Template.Annotations["checksum/config"]
 		if checksumAfter == checksumBefore {
-			t.Error("processor deployment pod template not updated after config change")
+			t.Error("processor statefulset pod template not updated after config change")
 		}
 	})
 
@@ -923,9 +968,14 @@ func newTestAsyncGateway(name string) *batchv1alpha1.LLMBatchGateway {
 	gw := newTestGateway(name)
 	concurrency := int32(8)
 	gw.Spec.Processor.DispatchMode = dispatchModeAsync
+	gw.Spec.Processor.GlobalInferenceGateway = nil
+	gw.Spec.Processor.ModelGateways = map[string]batchv1alpha1.InferenceGatewaySpec{
+		"sim-model": {InferencePoolName: "sim-pool"},
+	}
 	gw.Spec.Processor.AsyncConfig = &batchv1alpha1.AsyncProcessorSpec{
-		Concurrency:  &concurrency,
-		DrainTimeout: "2m",
+		Concurrency:       &concurrency,
+		DrainTimeout:      "2m",
+		ResultPollTimeout: "30s",
 		InferenceGateway: &batchv1alpha1.InferenceGatewaySpec{
 			URL: "http://epp:8081",
 		},
@@ -984,9 +1034,9 @@ func TestReconcileAsync(t *testing.T) {
 				hasAsyncProcessor = true
 			}
 		}
-		// 3 batch (apiserver, processor, gc) + 1 async-processor = 4
-		if deployCount != 4 {
-			t.Errorf("deployment count = %d, want 4", deployCount)
+		// 2 batch Deployments (apiserver, gc) + 1 async-processor Deployment.
+		if deployCount != 3 {
+			t.Errorf("deployment count = %d, want 3", deployCount)
 		}
 		if !hasAsyncProcessor {
 			t.Error("no async-processor deployment found")
@@ -1169,6 +1219,35 @@ func findOwnedDeployment(ctx context.Context, t *testing.T, gw *batchv1alpha1.LL
 	return nil
 }
 
+func findOwnedProcessorStatefulSet(ctx context.Context, t *testing.T, gw *batchv1alpha1.LLMBatchGateway) *appsv1.StatefulSet {
+	t.Helper()
+	var statefulSetList appsv1.StatefulSetList
+	if err := k8sClient.List(ctx, &statefulSetList); err != nil {
+		t.Fatalf("listing statefulsets: %v", err)
+	}
+	for i := range statefulSetList.Items {
+		ss := &statefulSetList.Items[i]
+		if !isOwnedByUID(ss.OwnerReferences, gw.UID) {
+			continue
+		}
+		if ss.Labels[labelKeyComponent] == componentProcessor {
+			return ss
+		}
+	}
+	t.Fatalf("no processor statefulset found owned by %s", gw.Name)
+	return nil
+}
+
+func workloadConfigChecksum(ctx context.Context, t *testing.T, gw *batchv1alpha1.LLMBatchGateway, component string) string {
+	t.Helper()
+	if component == componentProcessor {
+		ss := findOwnedProcessorStatefulSet(ctx, t, gw)
+		return ss.Spec.Template.Annotations["checksum/config"]
+	}
+	d := findOwnedDeployment(ctx, t, gw, component)
+	return d.Spec.Template.Annotations["checksum/config"]
+}
+
 // assertDeploymentReplicas verifies that the Deployment for the given component
 // has the expected replica count.
 func assertDeploymentReplicas(ctx context.Context, t *testing.T, gw *batchv1alpha1.LLMBatchGateway, component string, want int32) {
@@ -1180,6 +1259,18 @@ func assertDeploymentReplicas(ctx context.Context, t *testing.T, gw *batchv1alph
 			got = *d.Spec.Replicas
 		}
 		t.Errorf("%s replicas = %d, want %d", component, got, want)
+	}
+}
+
+func assertProcessorStatefulSetReplicas(ctx context.Context, t *testing.T, gw *batchv1alpha1.LLMBatchGateway, want int32) {
+	t.Helper()
+	ss := findOwnedProcessorStatefulSet(ctx, t, gw)
+	if ss.Spec.Replicas == nil || *ss.Spec.Replicas != want {
+		got := int32(0)
+		if ss.Spec.Replicas != nil {
+			got = *ss.Spec.Replicas
+		}
+		t.Errorf("processor replicas = %d, want %d", got, want)
 	}
 }
 

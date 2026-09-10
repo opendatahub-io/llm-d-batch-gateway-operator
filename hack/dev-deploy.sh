@@ -70,6 +70,15 @@ wait_for_deployment() {
         --for="condition=Available" --timeout="${TIMEOUT}"
 }
 
+wait_for_statefulset() {
+    local name="$1" ns="$2"
+    if ! wait_for "statefulset ${name} to exist" \
+        "kubectl get statefulset/${name} -n ${ns}"; then
+        return 1
+    fi
+    kubectl rollout status "statefulset/${name}" -n "$ns" --timeout="${TIMEOUT}"
+}
+
 # ── Prerequisites ────────────────────────────────────────────────────────────
 
 CONTAINER_TOOL=""
@@ -465,18 +474,23 @@ apply_and_verify_cr() {
     fi
     log "CR dispatch mode verified: $cr_dispatch_mode"
 
-    # 3. Wait for all deployments
-    local components=("${cr_name}-apiserver" "${cr_name}-processor" "${cr_name}-gc")
-    if [[ "$expected_dispatch" == "async" ]]; then
-        components+=("${cr_name}-async-processor")
-    fi
-
-    for dep in "${components[@]}"; do
+    # 3. Wait for workloads
+    for dep in "${cr_name}-apiserver" "${cr_name}-gc"; do
         if ! wait_for_deployment "${dep}" "${NAMESPACE}"; then
             kubectl get pods -n "${NAMESPACE}" -l "app.kubernetes.io/instance=${cr_name}"
             return 1
         fi
     done
+    if ! wait_for_statefulset "${cr_name}-processor" "${NAMESPACE}"; then
+        kubectl get pods -n "${NAMESPACE}" -l "app.kubernetes.io/instance=${cr_name}"
+        return 1
+    fi
+    if [[ "$expected_dispatch" == "async" ]]; then
+        if ! wait_for_deployment "${cr_name}-async-processor" "${NAMESPACE}"; then
+            kubectl get pods -n "${NAMESPACE}" -l "app.kubernetes.io/instance=${cr_name}"
+            return 1
+        fi
+    fi
 
     # 4. Wait for CR Ready
     if ! wait_for "CR ${cr_name} Ready" \

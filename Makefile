@@ -13,7 +13,7 @@ KIND_CLUSTER_NAME ?= batch-gateway-dev
 ## The full batch-gateway repo is checked out in $(BATCH_GATEWAY_DIR); the operator uses its chart + e2e tests.
 ## This replaces the old git submodule solution.
 BATCH_GATEWAY_REPO ?= https://github.com/opendatahub-io/batch-gateway.git
-BATCH_GATEWAY_REF  ?= c863b1e73b21456faf75395dddfc5f0656f0c0f4
+BATCH_GATEWAY_REF  ?= cc665223951f6a5962c66a107276eb75a629f6fb
 BATCH_GATEWAY_DIR  ?= batch-gateway
 
 ## Only the async-processor chart is sparse-checked-out from llm-d-async.
@@ -187,4 +187,3 @@ sync-prefetched-charts: fetch-batch-gateway fetch-llm-d-async ## For downstream 
 	@rm -rf prefetched-charts/async-processor && mkdir -p prefetched-charts
 	@cp -r "$(LLM_D_ASYNC_DIR)/charts/async-processor" prefetched-charts/async-processor
 	@echo "synced prefetched-charts/async-processor at $(LLM_D_ASYNC_REF)"
-
