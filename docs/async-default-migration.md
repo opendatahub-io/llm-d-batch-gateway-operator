@@ -121,9 +121,13 @@ To return an async resource to synchronous dispatch:
 spec:
   processor:
     dispatchMode: sync
+    asyncConfig: null
+    modelGateways: null
     globalInferenceGateway:
       url: http://existing-gateway:8000
 ```
+
+The async fields must be removed when switching to the synchronous gateway form; otherwise validation rejects a resource containing both gateway configurations.
 
 Restore the complete synchronous gateway configuration before removing async-specific settings.
 

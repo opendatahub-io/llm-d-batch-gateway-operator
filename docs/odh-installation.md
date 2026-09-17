@@ -184,6 +184,7 @@ spec:
   gc:
     interval: 30m
   processor:
+    dispatchMode: sync
     globalInferenceGateway:
       url: http://inference-gateway.default.svc.cluster.local:8000
       requestTimeout: 5m
