@@ -138,6 +138,8 @@ spec:
     replicas: 1
   processor:
     replicas: 1
+    # Preserve synchronous dispatch for this existing-style configuration.
+    dispatchMode: sync
     globalInferenceGateway:
       url: http://inference-gateway.default.svc.cluster.local:8000
       requestTimeout: 5m
