@@ -311,7 +311,7 @@ type ProcessorSpec struct {
 
 	// DispatchMode controls how batch requests are dispatched to inference backends.
 	// - "async" (default) deploys an async-processor that dispatches via a message queue.
-	// - "sync" sends requests directly via HTTP.
+	// - "sync" sends requests directly via HTTP. Set this explicitly to preserve synchronous dispatch.
 	// +kubebuilder:validation:Enum=sync;async
 	// +kubebuilder:default=async
 	DispatchMode string `json:"dispatchMode,omitempty"`
