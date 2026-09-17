@@ -45,7 +45,8 @@ func newTestGateway(name string) *batchv1alpha1.LLMBatchGateway {
 				Replicas: ptr.To(int32(1)),
 			},
 			Processor: batchv1alpha1.ProcessorSpec{
-				Replicas: ptr.To(int32(1)),
+				Replicas:     ptr.To(int32(1)),
+				DispatchMode: "sync",
 				GlobalInferenceGateway: &batchv1alpha1.InferenceGatewaySpec{
 					URL:            "http://inference-gw:8000",
 					RequestTimeout: "5m",
