@@ -310,11 +310,11 @@ type ProcessorSpec struct {
 	Config *ProcessorConfigSpec `json:"config,omitempty"`
 
 	// DispatchMode controls how batch requests are dispatched to inference backends.
-	// - "sync" (default) sends requests directly via HTTP.
-	// - "async" deploys an async-processor that dispatches via a message queue.
+	// - "async" (default) deploys an async-processor that dispatches via a message queue.
+	// - "sync" sends requests directly via HTTP. Set this explicitly to preserve synchronous dispatch.
 	// +kubebuilder:validation:Enum=sync;async
-	// +kubebuilder:default=sync
-	DispatchMode string `json:"dispatchMode,omitempty"` // TODO: should switch default to async ?
+	// +kubebuilder:default=async
+	DispatchMode string `json:"dispatchMode,omitempty"`
 
 	// GlobalInferenceGateway is the default inference gateway used for all models
 	// unless overridden by a ModelGateways entry.

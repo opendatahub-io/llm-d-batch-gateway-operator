@@ -45,7 +45,8 @@ func newTestGateway(name string) *batchv1alpha1.LLMBatchGateway {
 				Replicas: ptr.To(int32(1)),
 			},
 			Processor: batchv1alpha1.ProcessorSpec{
-				Replicas: ptr.To(int32(1)),
+				Replicas:     ptr.To(int32(1)),
+				DispatchMode: "sync",
 				GlobalInferenceGateway: &batchv1alpha1.InferenceGatewaySpec{
 					URL:            "http://inference-gw:8000",
 					RequestTimeout: "5m",
@@ -101,6 +102,36 @@ func TestReconcile(t *testing.T) {
 	reconcileTimeout := 30 * time.Second
 
 	reconciler := NewLLMBatchGatewayReconciler(k8sClient, k8sClient.Scheme(), batchGWHelmRenderer, nil, fakeRecorder, resyncTimeout, reconcileTimeout)
+
+	t.Run("defaults omitted dispatch mode to async", func(t *testing.T) {
+		gw := newTestAsyncGateway("test-default-async")
+		gw.Spec.Processor.DispatchMode = ""
+		if err := k8sClient.Create(ctx, gw); err != nil {
+			t.Fatalf("creating CR: %v", err)
+		}
+		t.Cleanup(func() { _ = k8sClient.Delete(ctx, gw) })
+
+		var stored batchv1alpha1.LLMBatchGateway
+		if err := k8sClient.Get(ctx, types.NamespacedName{Name: gw.Name, Namespace: gw.Namespace}, &stored); err != nil {
+			t.Fatalf("getting defaulted CR: %v", err)
+		}
+		if stored.Spec.Processor.DispatchMode != dispatchModeAsync {
+			t.Fatalf("dispatchMode = %q, want %q", stored.Spec.Processor.DispatchMode, dispatchModeAsync)
+		}
+
+		values := specToBatchHelmValues(&stored, testSecretName(&stored), testImages(), tlspkg.ProfileValues{})
+		processor, ok := values["processor"].(map[string]any)
+		if !ok {
+			t.Fatal("rendered processor config missing")
+		}
+		config, ok := processor["config"].(map[string]any)
+		if !ok {
+			t.Fatal("rendered processor config section missing")
+		}
+		if got := config["dispatchMode"]; got != dispatchModeAsync {
+			t.Errorf("rendered dispatchMode = %v, want %q", got, dispatchModeAsync)
+		}
+	})
 
 	t.Run("returns RequeueAfter on successful reconcile", func(t *testing.T) {
 		gw := newTestGateway("test-requeue")
