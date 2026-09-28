@@ -33,8 +33,11 @@ spec:
       ports:
         - protocol: TCP
           port: 8443
-    # Kubelet liveness/readiness probes (port 8081). Kubelets run on the host
-    # network, so no from selector is applied; only the port is restricted.
+    # Kubelet liveness/readiness probes (port 8081). No from selector: kubelet
+    # is not a namespaced peer, and node-to-pod exemptions are CNI-dependent.
+    # Restricting only the port keeps probes working once this Ingress policy
+    # selects the pod. Endpoints are healthz.Ping only (no metrics/control).
     - ports:
         - protocol: TCP
           port: 8081
+
