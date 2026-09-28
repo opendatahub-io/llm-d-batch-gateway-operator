@@ -75,7 +75,6 @@ func componentImagesFromEnv() (controller.ComponentImages, error) {
 // +kubebuilder:rbac:groups=authorization.k8s.io,resources=subjectaccessreviews,verbs=create
 // +kubebuilder:rbac:groups=config.openshift.io,resources=apiservers,verbs=get;list;watch
 
-
 var (
 	scheme                  = runtime.NewScheme()
 	syncPeriodDefault       = 5 * time.Minute
