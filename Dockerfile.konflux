@@ -36,7 +36,7 @@ CGO_ENABLED=${CGO_ENABLED} GOOS=${TARGETOS} GOARCH=${TARGETARCH} \
 GOEXPERIMENT=strictfipsruntime \
 go build -a -o bin/manager ./cmd/
 
-FROM registry.access.redhat.com/ubi9/ubi-minimal:9.7@sha256:dd334afa72444fa46238fcf9e6bd399245adf746378735348cf84b9dfdca38f1
+FROM registry.redhat.io/ubi10/ubi-minimal:10.2@sha256:552f8cc1ddb0bc9e411065c78499aa4dbc2c4ea9bd057aa0e6e44940db13acb5
 WORKDIR /
 COPY --from=builder /opt/app-root/src/bin/manager /manager
 COPY --from=builder /tmp/batch-gateway-chart /charts/batch-gateway/
