@@ -142,6 +142,11 @@ func (in *AsyncProcessorSpec) DeepCopyInto(out *AsyncProcessorSpec) {
 		*out = new(int32)
 		**out = **in
 	}
+	if in.MaxConnections != nil {
+		in, out := &in.MaxConnections, &out.MaxConnections
+		*out = new(int32)
+		**out = **in
+	}
 	if in.Redis != nil {
 		in, out := &in.Redis, &out.Redis
 		*out = new(AsyncRedisSpec)

@@ -706,6 +706,13 @@ spec:
                         - message: tlsInsecureSkipVerify is not allowed; configure
                             trusted CA certificates instead
                           rule: '!has(self.tlsInsecureSkipVerify) || !self.tlsInsecureSkipVerify'
+                      maxConnections:
+                        default: 8
+                        description: MaxConnections is the maximum PostgreSQL connections
+                          per processor replica when Transport is sql.
+                        format: int32
+                        minimum: 1
+                        type: integer
                       modelServerMonitor:
                         description: ModelServerMonitor configs a PodMonitor that
                           scrapes model server metrics.
@@ -729,6 +736,13 @@ spec:
                               type: string
                             type: object
                         type: object
+                      pollInterval:
+                        default: 1s
+                        description: PollInterval is the interval between async result
+                          polls.
+                        maxLength: 32
+                        pattern: ^([0-9]+(\.[0-9]+)?(ms|s|m|h))+$
+                        type: string
                       prometheusCacheTTL:
                         description: PrometheusCacheTTL is the cache duration for
                           Prometheus query results (e.g. "30s").
@@ -943,6 +957,13 @@ spec:
                               type: object
                             type: array
                         type: object
+                      transport:
+                        default: redis-sortedset
+                        description: Transport selects the async dispatch transport.
+                        enum:
+                        - redis-sortedset
+                        - sql
+                        type: string
                       workerPools:
                         description: WorkerPools defines named worker pool configurations.
                         items:

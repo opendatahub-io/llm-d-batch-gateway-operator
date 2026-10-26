@@ -227,6 +227,11 @@ func specToBatchHelmValues(gw *batchv1alpha1.LLMBatchGateway, secretName string,
 		asyncDispatch := map[string]any{
 			"resultPollTimeout": gw.Spec.Processor.AsyncConfig.ResultPollTimeout,
 		}
+		setIfNotEmpty(asyncDispatch, "transport", gw.Spec.Processor.AsyncConfig.Transport)
+		setIfNotEmpty(asyncDispatch, "pollInterval", gw.Spec.Processor.AsyncConfig.PollInterval)
+		if gw.Spec.Processor.AsyncConfig.MaxConnections != nil {
+			asyncDispatch["maxConnections"] = int64(*gw.Spec.Processor.AsyncConfig.MaxConnections)
+		}
 		if len(gw.Spec.Processor.ModelGateways) > 0 {
 			models := map[string]any{}
 			for model, spec := range gw.Spec.Processor.ModelGateways {

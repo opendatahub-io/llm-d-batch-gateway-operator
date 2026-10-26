@@ -1380,6 +1380,7 @@ func TestSpecToHelmValues_RouteKeyMethod(t *testing.T) {
 
 func TestSpecToHelmValues_AsyncDispatchModels(t *testing.T) {
 	gw := minimalGateway()
+	maxConnections := int32(12)
 	gw.Spec.Processor.DispatchMode = dispatchModeAsync
 	gw.Spec.Processor.GlobalInferenceGateway = nil
 	gw.Spec.Processor.ModelGateways = map[string]batchv1alpha1.InferenceGatewaySpec{
@@ -1392,6 +1393,9 @@ func TestSpecToHelmValues_AsyncDispatchModels(t *testing.T) {
 	}
 	gw.Spec.Processor.AsyncConfig = &batchv1alpha1.AsyncProcessorSpec{
 		ResultPollTimeout: "45s",
+		Transport:         "sql",
+		PollInterval:      "2s",
+		MaxConnections:    &maxConnections,
 	}
 
 	vals := specToBatchHelmValues(gw, testSecretName(gw), testImages(), tlspkg.ProfileValues{})
@@ -1404,6 +1408,15 @@ func TestSpecToHelmValues_AsyncDispatchModels(t *testing.T) {
 	}
 	if got := ad["resultPollTimeout"]; got != "45s" {
 		t.Errorf("asyncDispatch.resultPollTimeout = %v, want 45s", got)
+	}
+	if got := ad["transport"]; got != "sql" {
+		t.Errorf("asyncDispatch.transport = %v, want sql", got)
+	}
+	if got := ad["pollInterval"]; got != "2s" {
+		t.Errorf("asyncDispatch.pollInterval = %v, want 2s", got)
+	}
+	if got := ad["maxConnections"]; got != int64(12) {
+		t.Errorf("asyncDispatch.maxConnections = %v, want 12", got)
 	}
 	models := ad["models"].(map[string]any)
 	model := models["model-a"].(map[string]any)

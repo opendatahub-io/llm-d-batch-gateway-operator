@@ -7,7 +7,7 @@ import (
 // --- Async Processor ---
 
 // AsyncProcessorSpec configures the optional async-processor component that dispatches
-// batch inference requests via a Redis message queue to inference gateways.
+// batch inference requests through the selected async transport to inference gateways.
 // When set on LLMBatchGatewaySpec, the controller deploys an additional
 // async-processor Deployment alongside the core components.
 type AsyncProcessorSpec struct {
@@ -45,6 +45,22 @@ type AsyncProcessorSpec struct {
 	// +kubebuilder:validation:Pattern=`^([0-9]+(\.[0-9]+)?(ms|s|m|h))+$`
 	// +kubebuilder:validation:MaxLength=32
 	ResultPollTimeout string `json:"resultPollTimeout,omitempty"`
+
+	// Transport selects the async dispatch transport.
+	// +kubebuilder:validation:Enum=redis-sortedset;sql
+	// +kubebuilder:default=redis-sortedset
+	Transport string `json:"transport,omitempty"`
+
+	// PollInterval is the interval between async result polls.
+	// +kubebuilder:default="1s"
+	// +kubebuilder:validation:Pattern=`^([0-9]+(\.[0-9]+)?(ms|s|m|h))+$`
+	// +kubebuilder:validation:MaxLength=32
+	PollInterval string `json:"pollInterval,omitempty"`
+
+	// MaxConnections is the maximum PostgreSQL connections per processor replica when Transport is sql.
+	// +kubebuilder:default=8
+	// +kubebuilder:validation:Minimum=1
+	MaxConnections *int32 `json:"maxConnections,omitempty"`
 
 	// Redis configures the Redis message queue backend.
 	Redis *AsyncRedisSpec `json:"redis,omitempty"`
