@@ -2,6 +2,8 @@
 
 Deploy LLM Batch Gateway through the ODH platform on OpenShift.
 
+For upgrades, read the [Async Dispatch and Core Storage Migration](async-default-migration.md) guide first. It covers the separate PostgreSQL migration for Batch Gateway metadata and the transport choice for async queues.
+
 ## Architecture
 
 ```
@@ -22,8 +24,9 @@ opendatahub-operator (platform orchestrator)
 
 - OpenShift cluster with ODH operator installed
 - `oc` / `kubectl` CLI connected to the cluster
-- `helm` (for installing test prerequisites: PostgreSQL, Redis, MinIO)
-- External dependencies for LLMBatchGateway: PostgreSQL, Redis, S3-compatible storage
+- `helm` (for installing PostgreSQL and optional Redis test dependencies)
+- `kubectl` (for installing the SeaweedFS test dependency)
+- External dependencies for LLMBatchGateway: PostgreSQL and S3-compatible storage. Async dispatch needs either Redis/Valkey for the default sorted-set transport or PostgreSQL for the experimental SQL transport.
 
 ## Installation
 
@@ -99,20 +102,34 @@ status:
 
 ### Step 2: Set up external dependencies
 
-LLMBatchGateway requires PostgreSQL, Redis, and S3-compatible storage. For testing, use the provided script:
+LLMBatchGateway requires PostgreSQL and S3-compatible storage. Async dispatch uses either Redis/Valkey sorted-set or PostgreSQL SQL queues. For synchronous testing, use the provided script:
 
 ```bash
 export NAMESPACE=batch-api
+export SEAWEEDFS_ACCESS_KEY="batch-gateway-$(openssl rand -hex 16)"
+export SEAWEEDFS_SECRET_KEY="$(openssl rand -hex 32)"
 bash hack/setup-prereqs.sh
+```
+
+Use unique values for `SEAWEEDFS_ACCESS_KEY` and `SEAWEEDFS_SECRET_KEY`. The
+setup script requires both values and stores the secret key in
+`batch-gateway-secrets`. For production, use credentials from a managed Secret
+and do not use the local SeaweedFS setup script.
+
+For Redis-backed async testing, install Redis as well:
+
+```bash
+INSTALL_REDIS=true bash hack/setup-prereqs.sh
 ```
 
 This creates the `$NAMESPACE` namespace and installs:
 - PostgreSQL (`postgresql.$NAMESPACE.svc.cluster.local:5432`)
-- Redis (`redis-master.$NAMESPACE.svc.cluster.local:6379`)
-- MinIO (`minio.$NAMESPACE.svc.cluster.local:9000`, bucket: `batch-gateway`)
+- SeaweedFS S3 (`seaweedfs.$NAMESPACE.svc.cluster.local:8333`, bucket: `batch-gateway`)
 - `batch-gateway-secrets` Secret
 
-For production, replace with your own PostgreSQL, Redis, and S3 endpoints and update the CR spec accordingly.
+The async setup also installs Redis at `redis-master.$NAMESPACE.svc.cluster.local:6379` and adds its URL to `batch-gateway-secrets`.
+
+For production, replace PostgreSQL and S3 with your own endpoints. Configure Redis only when using the Redis async transport. For SQL async transport, ensure the referenced Secret contains `postgresql-url` and configure `spec.processor.asyncConfig.sql`.
 
 ### Step 3: Create LLMBatchGateway CR
 
@@ -127,17 +144,22 @@ spec:
   secretRef:
     name: batch-gateway-secrets
   dbBackend: postgresql
+  extraEndpoints:
+  - /v1/classify
   fileStorage:
     s3:
       region: us-east-1
-      endpoint: http://minio.$NAMESPACE.svc.cluster.local:9000
-      accessKeyId: minioadmin
+      endpoint: http://seaweedfs.$NAMESPACE.svc.cluster.local:8333
+      accessKeyId: ${SEAWEEDFS_ACCESS_KEY}
       usePathStyle: true
       autoCreateBucket: true
   apiServer:
     replicas: 1
   processor:
     replicas: 1
+    config:
+      inputFileDiskBudgetPercent: 10
+      progressUpdateInterval: 15s
     # Preserve synchronous dispatch for this existing-style configuration.
     dispatchMode: sync
     globalInferenceGateway:
@@ -176,9 +198,9 @@ spec:
   dbBackend: postgresql
   fileStorage:
     s3:
-      accessKeyId: minioadmin
+      accessKeyId: <generated-access-key>
       autoCreateBucket: true
-      endpoint: http://minio.batch-api.svc.cluster.local:9000
+      endpoint: http://seaweedfs.batch-api.svc.cluster.local:8333
       region: us-east-1
       usePathStyle: true
   gc:

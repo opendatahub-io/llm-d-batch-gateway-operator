@@ -5,7 +5,8 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 OPERATOR_DIR="$(cd "${SCRIPT_DIR}/.." && pwd)"
 
 NAMESPACE="${NAMESPACE:-default}"
-DEV_PROFILE="${DEV_PROFILE:-sync}"
+DEV_PROFILE="${DEV_PROFILE:-async}"
+SEAWEEDFS_RELEASE="${SEAWEEDFS_RELEASE:-seaweedfs}"
 
 log()  { echo "  [INFO]  $*"; }
 step() { echo ""; echo "==> $*"; }
@@ -28,8 +29,8 @@ helm uninstall postgresql -n "${NAMESPACE}" 2>/dev/null || warn "PostgreSQL not 
 step "Removing Redis..."
 helm uninstall redis -n "${NAMESPACE}" 2>/dev/null || warn "Redis not found"
 
-step "Removing MinIO..."
-kubectl delete deployment,svc minio -n "${NAMESPACE}" --ignore-not-found
+step "Removing SeaweedFS..."
+kubectl delete deployment,svc "${SEAWEEDFS_RELEASE}" -n "${NAMESPACE}" --ignore-not-found
 
 step "Removing vLLM simulator..."
 kubectl delete deployment,svc vllm-sim -n "${NAMESPACE}" --ignore-not-found

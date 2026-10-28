@@ -59,12 +59,23 @@ type LLMBatchGatewaySpec struct {
 	SecretRef corev1.SecretReference `json:"secretRef"`
 
 	// DBBackend selects the database backend used for job state storage.
-	// +kubebuilder:validation:Enum=redis;postgresql;valkey
+	// The batch-gateway control plane uses PostgreSQL. Redis is used by the
+	// async processor when dispatchMode is "async"; async is the default.
+	// +kubebuilder:validation:Enum=postgresql
 	// +kubebuilder:default=postgresql
 	DBBackend string `json:"dbBackend,omitempty"`
 
-	// RedisClient configures Redis/Valkey client connection settings (TLS, etc.).
+	// RedisClient is retained for API compatibility but is no longer used by
+	// the batch-gateway control plane. Configure Redis under processor.asyncConfig.
+	// Deprecated: do not set this field.
 	Redis *RedisClientSpec `json:"redis,omitempty"`
+
+	// ExtraEndpoints adds deployment-specific inference paths to the standard
+	// OpenAI Batch API allowlist for both the API server and processor.
+	// The batch-gateway processes validate each path at startup.
+	// +kubebuilder:validation:MaxItems=32
+	// +kubebuilder:validation:items:MaxLength=2048
+	ExtraEndpoints []string `json:"extraEndpoints,omitempty"`
 
 	// FileStorage configures the file storage backend used to persist batch
 	// input/output files. Exactly one of s3 or fs must be configured.
@@ -147,7 +158,7 @@ type S3StorageSpec struct {
 	// +kubebuilder:validation:MinLength=1
 	Bucket string `json:"bucket"`
 
-	// Endpoint overrides the S3 endpoint URL for non-AWS providers (e.g. MinIO).
+	// Endpoint overrides the S3 endpoint URL for non-AWS providers (e.g. SeaweedFS).
 	// +kubebuilder:validation:MaxLength=2048
 	// +kubebuilder:validation:Pattern=`^https?://.+$`
 	Endpoint string `json:"endpoint,omitempty"`
@@ -267,6 +278,13 @@ type BatchAPIConfig struct {
 	// PassThroughHeaders is a list of HTTP request headers forwarded to the inference backend.
 	// +kubebuilder:validation:items:MaxLength=256
 	PassThroughHeaders []string `json:"passThroughHeaders,omitempty"`
+
+	// ExtraEndpoints overrides spec.extraEndpoints for the API server.
+	// Leave unset to inherit spec.extraEndpoints; an explicit empty list disables
+	// deployment-specific endpoints for the API server.
+	// +kubebuilder:validation:MaxItems=32
+	// +kubebuilder:validation:items:MaxLength=2048
+	ExtraEndpoints *[]string `json:"extraEndpoints,omitempty"`
 }
 
 // FileAPIConfig configures the file upload/download API behaviour.
@@ -291,6 +309,7 @@ type LoggingConfig struct {
 
 // ProcessorSpec configures the request-processing worker component.
 // +kubebuilder:validation:XValidation:rule="self.dispatchMode != 'async' || has(self.asyncConfig)",message=".spec.processor.asyncConfig is required when dispatchMode is 'async'"
+// +kubebuilder:validation:XValidation:rule="self.dispatchMode != 'async' || (has(self.asyncConfig) && (has(self.asyncConfig.redis) || has(self.asyncConfig.sql)))",message="asyncConfig.redis or asyncConfig.sql is required when dispatchMode is 'async'"
 type ProcessorSpec struct {
 	// Replicas is the desired number of processor pods.
 	// Setting this to 0 suspends the processor; the Ready condition will be False.
@@ -439,13 +458,48 @@ type ConcurrencyConfig struct {
 	AIMD *AIMDConfig `json:"aimd,omitempty"`
 }
 
+// ResumableConfigSpec holds tunables for the processor's resumable pipeline.
+type ResumableConfigSpec struct {
+	// LeaseDuration is the PostgreSQL ownership lease held by an activated batch.
+	// The owning processor renews the lease at half this interval.
+	// +kubebuilder:validation:Pattern=`^([1-9][0-9]*s|[1-9][0-9]*m|[1-9][0-9]*h)([0-9]+s|[0-9]+m|[0-9]+h)*$`
+	// +kubebuilder:validation:MaxLength=32
+	LeaseDuration string `json:"leaseDuration,omitempty"`
+
+	// FinalizeConcurrency bounds parallel result-object fetches during finalization.
+	// +kubebuilder:validation:Minimum=1
+	FinalizeConcurrency int32 `json:"finalizeConcurrency,omitempty"`
+
+	// FinalizeTimeout is the budget for one resumable finalization attempt.
+	// +kubebuilder:validation:Pattern=`^([0-9]+(\.[0-9]+)?(ms|s|m|h))+$`
+	// +kubebuilder:validation:MaxLength=32
+	// +kubebuilder:validation:XValidation:rule="duration(self) > duration('0s')",message="finalizeTimeout must be greater than 0s"
+	FinalizeTimeout string `json:"finalizeTimeout,omitempty"`
+}
+
 // ProcessorConfigSpec holds fine-grained configuration for the processor process.
 type ProcessorConfigSpec struct {
 	// NumWorkers is the number of concurrent worker goroutines processing jobs.
 	NumWorkers int32 `json:"numWorkers,omitempty"`
 
+	// InputFileDiskBudgetPercent is the percentage of the processor work directory
+	// reserved for local input copies when calculating effective worker capacity.
+	// +kubebuilder:validation:Minimum=1
+	// +kubebuilder:validation:Maximum=100
+	InputFileDiskBudgetPercent int32 `json:"inputFileDiskBudgetPercent,omitempty"`
+
+	// ExtraEndpoints overrides spec.extraEndpoints for the processor.
+	// Leave unset to inherit spec.extraEndpoints; an explicit empty list disables
+	// deployment-specific endpoints for the processor.
+	// +kubebuilder:validation:MaxItems=32
+	// +kubebuilder:validation:items:MaxLength=2048
+	ExtraEndpoints *[]string `json:"extraEndpoints,omitempty"`
+
 	// Concurrency groups all dispatch-rate and concurrency control knobs.
 	Concurrency *ConcurrencyConfig `json:"concurrency,omitempty"`
+
+	// Resumable holds tunables for the resumable batch pipeline.
+	Resumable *ResumableConfigSpec `json:"resumable,omitempty"`
 
 	// InferenceObjective is applied to globalInferenceGateway and to every
 	// modelGateways entry that does not set its own inferenceObjective.
@@ -457,8 +511,16 @@ type ProcessorConfigSpec struct {
 	// DefaultOutputExpirationSeconds is the TTL for job output files.
 	DefaultOutputExpirationSeconds int64 `json:"defaultOutputExpirationSeconds,omitempty"`
 
-	// ProgressTTLSeconds is how long in-progress job state is retained before being considered stale.
+	// ProgressTTLSeconds is retained for API compatibility. The upstream
+	// processor now writes progress to PostgreSQL and does not use this field.
+	// Deprecated: use progressUpdateInterval.
 	ProgressTTLSeconds int64 `json:"progressTTLSeconds,omitempty"`
+
+	// ProgressUpdateInterval is the interval between intermediate progress writes
+	// to PostgreSQL.
+	// +kubebuilder:validation:Pattern=`^([0-9]+(\.[0-9]+)?(ms|s|m|h))+$`
+	// +kubebuilder:validation:MaxLength=32
+	ProgressUpdateInterval string `json:"progressUpdateInterval,omitempty"`
 
 	// SendFairnessHeader controls whether the processor sends a fairness header
 	// to the inference gateway for fair scheduling across tenants.

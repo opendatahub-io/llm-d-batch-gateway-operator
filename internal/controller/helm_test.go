@@ -1,16 +1,20 @@
 package controller
 
 import (
+	"strings"
 	"testing"
 
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/utils/ptr"
 
 	batchv1alpha1 "github.com/opendatahub-io/llm-d-batch-gateway-operator/api/v1alpha1"
 	tlspkg "github.com/opendatahub-io/llm-d-batch-gateway-operator/internal/tls"
 )
+
+const classifyEndpoint = "/v1/classify"
 
 // testSecretName returns the secret name for use in tests, simulating what
 // resolveSecret returns in the same-namespace case.
@@ -25,7 +29,7 @@ func testImages() ComponentImages {
 		APIServer: "ghcr.io/llm-d/batch-gateway-apiserver:latest",
 		Processor: "ghcr.io/llm-d/batch-gateway-processor:latest",
 		GC:        "ghcr.io/llm-d/batch-gateway-gc:latest",
-		Async:     "ghcr.io/llm-d-incubation/llm-d-async:v0.7.2", // TODO: sync with Makefile tag
+		Async:     "ghcr.io/llm-d/llm-d-async:v1.0.0",
 	}
 }
 
@@ -110,7 +114,8 @@ func TestSpecToHelmValues(t *testing.T) {
 			SecretRef: corev1.SecretReference{
 				Name: "my-secret",
 			},
-			DBBackend: "postgresql",
+			DBBackend:      dbBackendPostgreSQL,
+			ExtraEndpoints: []string{classifyEndpoint},
 			FileStorage: &batchv1alpha1.FileStorageSpec{
 				S3: &batchv1alpha1.S3StorageSpec{
 					Region:   "us-east-1",
@@ -159,8 +164,8 @@ func TestSpecToHelmValues(t *testing.T) {
 	t.Run("global db client type", func(t *testing.T) {
 		global := vals["global"].(map[string]interface{})
 		dbClient := global["dbClient"].(map[string]interface{})
-		if got := dbClient["type"]; got != "postgresql" {
-			t.Errorf("dbClient.type = %v, want %q", got, "postgresql")
+		if got := dbClient["type"]; got != dbBackendPostgreSQL {
+			t.Errorf("dbClient.type = %v, want %q", got, dbBackendPostgreSQL)
 		}
 	})
 
@@ -169,6 +174,14 @@ func TestSpecToHelmValues(t *testing.T) {
 		dbClient := global["dbClient"].(map[string]interface{})
 		if _, ok := dbClient["redis"]; ok {
 			t.Error("dbClient.redis should not be present when RedisClient is nil")
+		}
+	})
+
+	t.Run("global extra endpoints", func(t *testing.T) {
+		global := vals["global"].(map[string]interface{})
+		endpoints := global["extraEndpoints"].([]interface{})
+		if len(endpoints) != 1 || endpoints[0] != classifyEndpoint {
+			t.Errorf("global.extraEndpoints = %v, want [/v1/classify]", endpoints)
 		}
 	})
 
@@ -413,6 +426,87 @@ func TestRenderBatchChart(t *testing.T) {
 	})
 }
 
+func TestRenderBatchChart_ResumableDefaults(t *testing.T) {
+	renderer, err := NewHelmRenderer("../../batch-gateway/charts/batch-gateway", testImages(), tlspkg.ProfileValues{})
+	if err != nil {
+		t.Fatalf("NewHelmRenderer() error: %v", err)
+	}
+
+	objects, err := renderer.RenderBatchChart(minimalGateway(), testSecretName(minimalGateway()))
+	if err != nil {
+		t.Fatalf("RenderBatchChart() error: %v", err)
+	}
+
+	for _, obj := range objects {
+		if obj.GetKind() != "ConfigMap" || !strings.Contains(obj.GetName(), "processor") {
+			continue
+		}
+		data, found, err := unstructured.NestedString(obj.Object, "data", "config.yaml")
+		if err != nil {
+			t.Fatalf("reading processor ConfigMap data: %v", err)
+		}
+		if !found {
+			t.Fatal("processor ConfigMap has no data.config.yaml")
+		}
+		if !strings.Contains(data, `finalize_timeout: "30m"`) {
+			t.Fatalf("processor ConfigMap resumable defaults = %q, want finalize_timeout 30m", data)
+		}
+		return
+	}
+
+	t.Fatal("processor ConfigMap not rendered")
+}
+
+func TestRenderBatchChart_AsyncDispatchSQLMaxConnections(t *testing.T) {
+	renderer, err := NewHelmRenderer("../../batch-gateway/charts/batch-gateway", testImages(), tlspkg.ProfileValues{})
+	if err != nil {
+		t.Fatalf("NewHelmRenderer() error: %v", err)
+	}
+
+	maxConnections := int32(1)
+	gw := minimalGateway()
+	gw.Spec.Processor.DispatchMode = dispatchModeAsync
+	gw.Spec.Processor.GlobalInferenceGateway = nil
+	gw.Spec.Processor.ModelGateways = map[string]batchv1alpha1.InferenceGatewaySpec{
+		"model-a": {
+			InferencePoolName: "pool-a",
+			RequestQueueName:  asyncRequestQueueName("pool-a"),
+			ResultQueueName:   asyncResultQueueName("pool-a"),
+		},
+	}
+	gw.Spec.Processor.AsyncConfig = &batchv1alpha1.AsyncProcessorSpec{
+		ResultPollTimeout: "45s",
+		SQL:               &batchv1alpha1.AsyncSQLSpec{MaxConnections: &maxConnections},
+	}
+
+	objects, err := renderer.RenderBatchChart(gw, testSecretName(gw))
+	if err != nil {
+		t.Fatalf("RenderBatchChart() error: %v", err)
+	}
+
+	for _, obj := range objects {
+		if obj.GetKind() != "ConfigMap" || !strings.Contains(obj.GetName(), "processor") {
+			continue
+		}
+		data, found, err := unstructured.NestedString(obj.Object, "data", "config.yaml")
+		if err != nil {
+			t.Fatalf("reading processor ConfigMap data: %v", err)
+		}
+		if !found {
+			t.Fatal("processor ConfigMap has no data.config.yaml")
+		}
+		if !strings.Contains(data, `transport: "sql"`) {
+			t.Fatalf("processor ConfigMap transport = %q, want sql", data)
+		}
+		if !strings.Contains(data, "max_connections: 1") {
+			t.Fatalf("processor ConfigMap max_connections = %q, want 1", data)
+		}
+		return
+	}
+
+	t.Fatal("processor ConfigMap not rendered")
+}
+
 func TestRenderBatchChart_WithMonitoring(t *testing.T) {
 	renderer, err := NewHelmRenderer("../../batch-gateway/charts/batch-gateway", testImages(), tlspkg.ProfileValues{})
 	if err != nil {
@@ -494,7 +588,7 @@ func TestSpecToHelmValues_FSStorage(t *testing.T) {
 		Retry: &batchv1alpha1.FileRetrySpec{
 			MaxRetries:     ptr.To(int32(5)),
 			InitialBackoff: "500ms",
-			MaxBackoff:     "30s",
+			MaxBackoff:     testDuration30s,
 		},
 	}
 
@@ -548,8 +642,11 @@ func TestSpecToHelmValues_OTEL(t *testing.T) {
 	if got := otel["sampler"]; got != "parentbased_traceidratio" {
 		t.Errorf("otel.sampler = %v", got)
 	}
-	if got := otel["redisTracing"]; got != true {
-		t.Errorf("otel.redisTracing = %v, want true", got)
+	if _, ok := otel["redisTracing"]; ok {
+		t.Error("otel.redisTracing must not be rendered by the current chart")
+	}
+	if got := otel["postgresqlTracing"]; got != true {
+		t.Errorf("otel.postgresqlTracing = %v, want true", got)
 	}
 }
 
@@ -810,6 +907,7 @@ func TestSpecToHelmValues_APIServerConfig(t *testing.T) {
 		BatchAPI: &batchv1alpha1.BatchAPIConfig{
 			EventTTLSeconds:    3600,
 			PassThroughHeaders: []string{"X-Request-ID", "Authorization"},
+			ExtraEndpoints:     ptr.To([]string{classifyEndpoint}),
 		},
 		FileAPI: &batchv1alpha1.FileAPIConfig{
 			DefaultExpirationSeconds: 86400,
@@ -850,16 +948,23 @@ func TestSpecToHelmValues_APIServerConfig(t *testing.T) {
 	if len(headers) != 2 || headers[0] != "X-Request-ID" {
 		t.Errorf("passThroughHeaders = %v", headers)
 	}
+	if endpoints := batchAPI["extraEndpoints"].([]interface{}); len(endpoints) != 1 || endpoints[0] != classifyEndpoint {
+		t.Errorf("batchAPI.extraEndpoints = %v, want [/v1/classify]", endpoints)
+	}
 
 	fileAPI := config["fileAPI"].(map[string]interface{})
 	if got := fileAPI["defaultExpirationSeconds"]; got != int64(86400) {
 		t.Errorf("fileAPI.defaultExpirationSeconds = %v, want 86400", got)
 	}
-	if got := fileAPI["maxSizeBytes"]; got != int64(104857600) {
-		t.Errorf("fileAPI.maxSizeBytes = %v, want 104857600", got)
+	if _, found := fileAPI["maxSizeBytes"]; found {
+		t.Error("fileAPI.maxSizeBytes should not be rendered by the current chart")
 	}
 	if got := fileAPI["maxLineCount"]; got != int64(100000) {
 		t.Errorf("fileAPI.maxLineCount = %v, want 100000", got)
+	}
+	global := vals["global"].(map[string]interface{})
+	if got := global["maxInputFileSizeBytes"]; got != int64(104857600) {
+		t.Errorf("global.maxInputFileSizeBytes = %v, want 104857600", got)
 	}
 }
 
@@ -873,8 +978,15 @@ func TestSpecToHelmValues_ProcessorConfig(t *testing.T) {
 			PerEndpoint: 16,
 			Recovery:    4,
 		},
+		Resumable: &batchv1alpha1.ResumableConfigSpec{
+			LeaseDuration:       "5m",
+			FinalizeConcurrency: 16,
+			FinalizeTimeout:     "30m",
+		},
+		InputFileDiskBudgetPercent:     20,
+		ExtraEndpoints:                 ptr.To([]string{classifyEndpoint}),
 		DefaultOutputExpirationSeconds: 7200,
-		ProgressTTLSeconds:             3600,
+		ProgressUpdateInterval:         testDuration30s,
 		EnablePprof:                    true,
 	}
 
@@ -899,6 +1011,19 @@ func TestSpecToHelmValues_ProcessorConfig(t *testing.T) {
 	if got := concurrency["recovery"]; got != int64(4) {
 		t.Errorf("concurrency.recovery = %v, want 4", got)
 	}
+	resumable, ok := config["resumable"].(map[string]interface{})
+	if !ok {
+		t.Fatalf("resumable not found or wrong type: %T", config["resumable"])
+	}
+	if got := resumable["leaseDuration"]; got != "5m" {
+		t.Errorf("resumable.leaseDuration = %v, want 5m", got)
+	}
+	if got := resumable["finalizeConcurrency"]; got != int64(16) {
+		t.Errorf("resumable.finalizeConcurrency = %v, want 16", got)
+	}
+	if got := resumable["finalizeTimeout"]; got != "30m" {
+		t.Errorf("resumable.finalizeTimeout = %v, want 30m", got)
+	}
 	gwConfig, ok := config["globalInferenceGateway"].(map[string]interface{})
 	if !ok {
 		t.Fatalf("globalInferenceGateway not found or wrong type: %T", config["globalInferenceGateway"])
@@ -909,11 +1034,47 @@ func TestSpecToHelmValues_ProcessorConfig(t *testing.T) {
 	if got := config["defaultOutputExpirationSeconds"]; got != int64(7200) {
 		t.Errorf("defaultOutputExpirationSeconds = %v, want 7200", got)
 	}
-	if got := config["progressTTLSeconds"]; got != int64(3600) {
-		t.Errorf("progressTTLSeconds = %v, want 3600", got)
+	if got := config["progressUpdateInterval"]; got != testDuration30s {
+		t.Errorf("progressUpdateInterval = %v, want 30s", got)
+	}
+	if got := config["inputFileDiskBudgetPercent"]; got != int64(20) {
+		t.Errorf("inputFileDiskBudgetPercent = %v, want 20", got)
+	}
+	if endpoints := config["extraEndpoints"].([]interface{}); len(endpoints) != 1 || endpoints[0] != classifyEndpoint {
+		t.Errorf("processor.extraEndpoints = %v, want [/v1/classify]", endpoints)
 	}
 	if got := config["enablePprof"]; got != true {
 		t.Errorf("enablePprof = %v, want true", got)
+	}
+}
+
+func TestSpecToHelmValues_EmptyExtraEndpointsOverride(t *testing.T) {
+	gateway := minimalGateway()
+	gateway.Spec.ExtraEndpoints = []string{classifyEndpoint}
+	gateway.Spec.APIServer.Config = &batchv1alpha1.APIServerConfigSpec{
+		BatchAPI: &batchv1alpha1.BatchAPIConfig{
+			ExtraEndpoints: ptr.To([]string{}),
+		},
+	}
+	gateway.Spec.Processor.Config = &batchv1alpha1.ProcessorConfigSpec{
+		ExtraEndpoints: ptr.To([]string{}),
+	}
+
+	vals := specToBatchHelmValues(gateway, testSecretName(gateway), testImages(), tlspkg.ProfileValues{})
+
+	apiserver := vals["apiserver"].(map[string]interface{})
+	apiConfig := apiserver["config"].(map[string]interface{})
+	batchAPI := apiConfig["batchAPI"].(map[string]interface{})
+	apiEndpoints, ok := batchAPI["extraEndpoints"].([]interface{})
+	if !ok || len(apiEndpoints) != 0 {
+		t.Errorf("apiserver extraEndpoints = %v, want an explicit empty list", batchAPI["extraEndpoints"])
+	}
+
+	processor := vals["processor"].(map[string]interface{})
+	processorConfig := processor["config"].(map[string]interface{})
+	processorEndpoints, ok := processorConfig["extraEndpoints"].([]interface{})
+	if !ok || len(processorEndpoints) != 0 {
+		t.Errorf("processor extraEndpoints = %v, want an explicit empty list", processorConfig["extraEndpoints"])
 	}
 }
 
@@ -1061,7 +1222,7 @@ func TestSpecToHelmValues_InferenceGatewayMaxRetries(t *testing.T) {
 	}
 }
 
-func TestSpecToHelmValues_RedisTLS(t *testing.T) {
+func TestSpecToHelmValues_CoreRedisSettingsIgnored(t *testing.T) {
 	gw := minimalGateway()
 	gw.Spec.Redis = &batchv1alpha1.RedisClientSpec{
 		EnableTLS: true,
@@ -1072,12 +1233,8 @@ func TestSpecToHelmValues_RedisTLS(t *testing.T) {
 
 	global := vals["global"].(map[string]interface{})
 	dbClient := global["dbClient"].(map[string]interface{})
-	redis := dbClient["redis"].(map[string]interface{})
-	if got := redis["enableTLS"]; got != true {
-		t.Errorf("dbClient.redis.enableTLS = %v, want true", got)
-	}
-	if got := redis["insecure"]; got != true {
-		t.Errorf("dbClient.redis.insecure = %v, want true", got)
+	if _, ok := dbClient["redis"]; ok {
+		t.Error("dbClient.redis must not be rendered by the current chart")
 	}
 }
 
@@ -1279,8 +1436,8 @@ func TestSpecToHelmValues_AsyncDispatchModels(t *testing.T) {
 		"model-a": {
 			InferencePoolName:  "pool-a",
 			InferenceObjective: "batch-a",
-			RequestQueueName:   "llm-d-async:requests:pool-a",
-			ResultQueueName:    "llm-d-async:results:pool-a",
+			RequestQueueName:   asyncRequestQueueName("pool-a"),
+			ResultQueueName:    asyncResultQueueName("pool-a"),
 		},
 	}
 	gw.Spec.Processor.AsyncConfig = &batchv1alpha1.AsyncProcessorSpec{
@@ -1306,14 +1463,54 @@ func TestSpecToHelmValues_AsyncDispatchModels(t *testing.T) {
 	if got := model["inferenceObjective"]; got != "batch-a" {
 		t.Errorf("asyncDispatch.models.model-a.inferenceObjective = %v, want batch-a", got)
 	}
-	if got := model["requestQueueName"]; got != "llm-d-async:requests:pool-a" {
-		t.Errorf("asyncDispatch.models.model-a.requestQueueName = %v", got)
+	if got := model["requestQueueName"]; got != asyncRequestQueueName("pool-a") {
+		t.Errorf("asyncDispatch.models.model-a.requestQueueName = %v, want %s", got, asyncRequestQueueName("pool-a"))
 	}
-	if got := model["resultQueueName"]; got != "llm-d-async:results:pool-a" {
-		t.Errorf("asyncDispatch.models.model-a.resultQueueName = %v", got)
+	if got := model["resultQueueName"]; got != asyncResultQueueName("pool-a") {
+		t.Errorf("asyncDispatch.models.model-a.resultQueueName = %v, want %s", got, asyncResultQueueName("pool-a"))
 	}
 	if _, ok := config["modelGateways"]; ok {
 		t.Error("processor.config.modelGateways should not be rendered in async mode")
+	}
+}
+
+func TestSpecToHelmValues_AsyncDispatchSQLMaxConnections(t *testing.T) {
+	one := int32(1)
+	eight := int32(8)
+
+	tests := []struct {
+		name      string
+		maxConns  *int32
+		want      any
+		wantValue bool
+	}{
+		{name: "unset uses chart default", maxConns: nil},
+		{name: "explicit one", maxConns: &one, want: int64(1), wantValue: true},
+		{name: "explicit eight", maxConns: &eight, want: int64(8), wantValue: true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			g := minimalGateway()
+			g.Spec.Processor.DispatchMode = dispatchModeAsync
+			g.Spec.Processor.AsyncConfig = &batchv1alpha1.AsyncProcessorSpec{
+				ResultPollTimeout: "45s",
+				SQL:               &batchv1alpha1.AsyncSQLSpec{MaxConnections: tt.maxConns},
+			}
+
+			vals := specToBatchHelmValues(g, testSecretName(g), testImages(), tlspkg.ProfileValues{})
+			processor := vals["processor"].(map[string]interface{})
+			config := processor["config"].(map[string]interface{})
+			asyncDispatch := config["asyncDispatch"].(map[string]any)
+
+			got, ok := asyncDispatch["maxConnections"]
+			if ok != tt.wantValue {
+				t.Fatalf("asyncDispatch.maxConnections presence = %v, want %v", ok, tt.wantValue)
+			}
+			if tt.wantValue && got != tt.want {
+				t.Errorf("asyncDispatch.maxConnections = %v, want %v", got, tt.want)
+			}
+		})
 	}
 }
 
@@ -1356,7 +1553,7 @@ func minimalGateway() *batchv1alpha1.LLMBatchGateway {
 			SecretRef: corev1.SecretReference{
 				Name: "batch-gateway-secrets",
 			},
-			DBBackend: "postgresql",
+			DBBackend: dbBackendPostgreSQL,
 			FileStorage: &batchv1alpha1.FileStorageSpec{
 				S3: &batchv1alpha1.S3StorageSpec{
 					Region:   "us-east-1",

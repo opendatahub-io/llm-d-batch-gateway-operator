@@ -78,6 +78,16 @@ spec:
                               retained before expiry.
                             format: int32
                             type: integer
+                          extraEndpoints:
+                            description: |-
+                              ExtraEndpoints overrides spec.extraEndpoints for the API server.
+                              Leave unset to inherit spec.extraEndpoints; an explicit empty list disables
+                              deployment-specific endpoints for the API server.
+                            items:
+                              maxLength: 2048
+                              type: string
+                            maxItems: 32
+                            type: array
                           passThroughHeaders:
                             description: PassThroughHeaders is a list of HTTP request
                               headers forwarded to the inference backend.
@@ -236,13 +246,23 @@ spec:
                 type: object
               dbBackend:
                 default: postgresql
-                description: DBBackend selects the database backend used for job state
-                  storage.
+                description: |-
+                  DBBackend selects the database backend used for job state storage.
+                  The batch-gateway control plane uses PostgreSQL. Redis is used by the
+                  async processor when dispatchMode is "async"; async is the default.
                 enum:
-                - redis
                 - postgresql
-                - valkey
                 type: string
+              extraEndpoints:
+                description: |-
+                  ExtraEndpoints adds deployment-specific inference paths to the standard
+                  OpenAI Batch API allowlist for both the API server and processor.
+                  The batch-gateway processes validate each path at startup.
+                items:
+                  maxLength: 2048
+                  type: string
+                maxItems: 32
+                type: array
               fileStorage:
                 description: |-
                   FileStorage configures the file storage backend used to persist batch
@@ -315,7 +335,7 @@ spec:
                         type: string
                       endpoint:
                         description: Endpoint overrides the S3 endpoint URL for non-AWS
-                          providers (e.g. MinIO).
+                          providers (e.g. SeaweedFS).
                         maxLength: 2048
                         pattern: ^https?://.+$
                         type: string
@@ -752,8 +772,8 @@ spec:
                               QueuesConfig is a list of per-queue configurations.
                               When set, overrides the single-queue settings (RequestPathURL, GateType, etc.).
                             items:
-                              description: AsyncQueueConfig configures a single Redis
-                                queue for the async-processor.
+                              description: AsyncQueueConfig configures a single async-processor
+                                request queue.
                               properties:
                                 gateParams:
                                   additionalProperties:
@@ -773,11 +793,8 @@ spec:
                                   pattern: ^https?://.+$
                                   type: string
                                 name:
-                                  description: |-
-                                    Name is the Redis sorted-set key for this queue.
-                                    Must follow the convention: llm-d-async:requests:<inferencePoolName>
-                                    where <inferencePoolName> matches the corresponding modelGateways entry.
-                                    The result queue (llm-d-async:results:<inferencePoolName>) is auto-configured by the batch processor.
+                                  description: Name is the transport-specific request
+                                    queue name.
                                   maxLength: 253
                                   type: string
                                 requestPathURL:
@@ -805,10 +822,10 @@ spec:
                       replicas:
                         default: 1
                         description: |-
-                          Replicas is the desired number of async-processor pods.
-                          Setting this to 0 suspends the async-processor; the Ready condition will be False.
-                          NOTE: the upstream async-processor chart currently hardcodes replicas to 1;
-                          this field will take effect once the upstream chart templates it from values.
+                          Replicas is reserved for the future desired number of async-processor pods.
+                          It is currently ignored: the upstream llm-d-async chart hardcodes replicas to 1.
+                          Setting this field, including 0, does not change or suspend the async processor.
+                          It will take effect only after the upstream chart templates it from values.
                         format: int32
                         minimum: 0
                         type: integer
@@ -879,6 +896,97 @@ spec:
                         maxLength: 32
                         pattern: ^([0-9]+(\.[0-9]+)?(ms|s|m|h))+$
                         type: string
+                      sql:
+                        description: |-
+                          SQL configures the PostgreSQL SQL message queue backend.
+                          Redis and SQL are mutually exclusive; async dispatch requires one of them.
+                        properties:
+                          batchSize:
+                            default: 10
+                            description: BatchSize is the number of requests to dispatch
+                              per poll cycle.
+                            format: int32
+                            minimum: 1
+                            type: integer
+                          handoffTimeoutSeconds:
+                            description: HandoffTimeoutSeconds bounds graceful partition
+                              handoff during processor shutdown.
+                            format: int32
+                            minimum: 1
+                            type: integer
+                          leaseTTLSeconds:
+                            description: LeaseTTLSeconds controls SQL partition lease
+                              expiry after a processor stops heartbeating.
+                            format: int32
+                            minimum: 1
+                            type: integer
+                          maxConnections:
+                            description: |-
+                              MaxConnections caps the SQL connection pool for each Batch Gateway
+                              processor replica (async_dispatch.max_connections). It is separate from
+                              the async processor dispatcher's own SQL pool.
+                              When omitted, the chart default (8) applies. Explicit values must be positive.
+                            format: int32
+                            minimum: 1
+                            type: integer
+                          pollIntervalMs:
+                            default: 1000
+                            description: PollIntervalMs is the interval in milliseconds
+                              for polling SQL queues.
+                            format: int32
+                            minimum: 1
+                            type: integer
+                          queuesConfig:
+                            description: QueuesConfig configures SQL request queues
+                              and their dispatch gates.
+                            items:
+                              description: AsyncQueueConfig configures a single async-processor
+                                request queue.
+                              properties:
+                                gateParams:
+                                  additionalProperties:
+                                    type: string
+                                  description: GateParams overrides the gate parameters
+                                    for this queue.
+                                  type: object
+                                gateType:
+                                  description: GateType overrides the gating mechanism
+                                    for this queue.
+                                  maxLength: 253
+                                  type: string
+                                igwBaseURL:
+                                  description: IGWBaseURL overrides the top-level
+                                    asyncConfig.inferenceGateway URL for this queue.
+                                  maxLength: 2048
+                                  pattern: ^https?://.+$
+                                  type: string
+                                name:
+                                  description: Name is the transport-specific request
+                                    queue name.
+                                  maxLength: 253
+                                  type: string
+                                requestPathURL:
+                                  description: RequestPathURL overrides the request
+                                    path for this queue.
+                                  maxLength: 2048
+                                  type: string
+                                workerPoolID:
+                                  description: |-
+                                    WorkerPoolID assigns this queue to a named worker pool.
+                                    Must match a workerPools[].name entry. Defaults to "default" if omitted.
+                                  maxLength: 253
+                                  type: string
+                              required:
+                              - name
+                              type: object
+                            type: array
+                          resultBatchSize:
+                            description: ResultBatchSize is the maximum number of
+                              results written per transaction.
+                            format: int32
+                            minimum: 1
+                            type: integer
+                        type: object
                       tls:
                         description: TLS configures TLS for connections to inference
                           gateways.
@@ -956,6 +1064,10 @@ spec:
                           type: object
                         type: array
                     type: object
+                    x-kubernetes-validations:
+                    - message: asyncConfig.redis and asyncConfig.sql are mutually
+                        exclusive
+                      rule: '!(has(self.redis) && has(self.sql))'
                   config:
                     description: Config holds fine-grained processor configuration.
                     properties:
@@ -1024,6 +1136,16 @@ spec:
                         description: EnablePprof enables the Go pprof profiling HTTP
                           endpoints.
                         type: boolean
+                      extraEndpoints:
+                        description: |-
+                          ExtraEndpoints overrides spec.extraEndpoints for the processor.
+                          Leave unset to inherit spec.extraEndpoints; an explicit empty list disables
+                          deployment-specific endpoints for the processor.
+                        items:
+                          maxLength: 2048
+                          type: string
+                        maxItems: 32
+                        type: array
                       inferenceObjective:
                         description: |-
                           InferenceObjective is applied to globalInferenceGateway and to every
@@ -1032,6 +1154,14 @@ spec:
                           Deprecated: set inferenceObjective on the gateway instead.
                         maxLength: 253
                         type: string
+                      inputFileDiskBudgetPercent:
+                        description: |-
+                          InputFileDiskBudgetPercent is the percentage of the processor work directory
+                          reserved for local input copies when calculating effective worker capacity.
+                        format: int32
+                        maximum: 100
+                        minimum: 1
+                        type: integer
                       logging:
                         description: Logging configures log verbosity for the processor.
                         properties:
@@ -1047,10 +1177,46 @@ spec:
                         format: int32
                         type: integer
                       progressTTLSeconds:
-                        description: ProgressTTLSeconds is how long in-progress job
-                          state is retained before being considered stale.
+                        description: |-
+                          ProgressTTLSeconds is retained for API compatibility. The upstream
+                          processor now writes progress to PostgreSQL and does not use this field.
+                          Deprecated: use progressUpdateInterval.
                         format: int64
                         type: integer
+                      progressUpdateInterval:
+                        description: |-
+                          ProgressUpdateInterval is the interval between intermediate progress writes
+                          to PostgreSQL.
+                        maxLength: 32
+                        pattern: ^([0-9]+(\.[0-9]+)?(ms|s|m|h))+$
+                        type: string
+                      resumable:
+                        description: Resumable holds tunables for the resumable batch
+                          pipeline.
+                        properties:
+                          finalizeConcurrency:
+                            description: FinalizeConcurrency bounds parallel result-object
+                              fetches during finalization.
+                            format: int32
+                            minimum: 1
+                            type: integer
+                          finalizeTimeout:
+                            description: FinalizeTimeout is the budget for one resumable
+                              finalization attempt.
+                            maxLength: 32
+                            pattern: ^([0-9]+(\.[0-9]+)?(ms|s|m|h))+$
+                            type: string
+                            x-kubernetes-validations:
+                            - message: finalizeTimeout must be greater than 0s
+                              rule: duration(self) > duration('0s')
+                          leaseDuration:
+                            description: |-
+                              LeaseDuration is the PostgreSQL ownership lease held by an activated batch.
+                              The owning processor renews the lease at half this interval.
+                            maxLength: 32
+                            pattern: ^([1-9][0-9]*s|[1-9][0-9]*m|[1-9][0-9]*h)([0-9]+s|[0-9]+m|[0-9]+h)*$
+                            type: string
+                        type: object
                       routeKeyMethod:
                         description: |-
                           RouteKeyMethod controls how modelGateways lookup keys are built.
@@ -1327,6 +1493,10 @@ spec:
                 - message: .spec.processor.asyncConfig is required when dispatchMode
                     is 'async'
                   rule: self.dispatchMode != 'async' || has(self.asyncConfig)
+                - message: asyncConfig.redis or asyncConfig.sql is required when dispatchMode
+                    is 'async'
+                  rule: self.dispatchMode != 'async' || (has(self.asyncConfig) &&
+                    (has(self.asyncConfig.redis) || has(self.asyncConfig.sql)))
               prometheusRule:
                 description: PrometheusRule configures a PrometheusRule resource with
                   pre-built alerting rules.
@@ -1344,8 +1514,10 @@ spec:
                     type: object
                 type: object
               redis:
-                description: RedisClient configures Redis/Valkey client connection
-                  settings (TLS, etc.).
+                description: |-
+                  RedisClient is retained for API compatibility but is no longer used by
+                  the batch-gateway control plane. Configure Redis under processor.asyncConfig.
+                  Deprecated: do not set this field.
                 properties:
                   enableTLS:
                     description: EnableTLS enables TLS for the Redis/Valkey connection.
