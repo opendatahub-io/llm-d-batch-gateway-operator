@@ -1283,6 +1283,21 @@ func TestSpecToHelmValues_RouteKeyMethod(t *testing.T) {
 	}
 }
 
+func TestSpecToHelmValues_TenantMetadataKey(t *testing.T) {
+	gw := minimalGateway()
+	gw.Spec.Processor.Config = &batchv1alpha1.ProcessorConfigSpec{
+		TenantMetadataKey: "userid",
+	}
+
+	vals := specToBatchHelmValues(gw, testSecretName(gw), testImages(), tlspkg.ProfileValues{})
+
+	processor := vals["processor"].(map[string]interface{})
+	config := processor["config"].(map[string]interface{})
+	if got := config["tenantMetadataKey"]; got != "userid" {
+		t.Errorf("tenantMetadataKey = %v, want userid", got)
+	}
+}
+
 func TestSpecToHelmValues_AsyncDispatchModels(t *testing.T) {
 	gw := minimalGateway()
 	gw.Spec.Processor.ModelGateways = map[string]batchv1alpha1.ModelGatewaySpec{
