@@ -74,6 +74,12 @@ func specToAsyncHelmValues(gw *batchv1alpha1.LLMBatchGateway, secretName string,
 
 	setIfNotEmpty(ap, "prometheusURL", ac.PrometheusURL)
 	setIfNotEmpty(ap, "prometheusCacheTTL", ac.PrometheusCacheTTL)
+	if ac.PrometheusAuth != nil {
+		auth := map[string]any{}
+		setIfNotEmpty(auth, "bearerTokenFile", ac.PrometheusAuth.BearerTokenFile)
+		setIfNotEmpty(auth, "caCertFile", ac.PrometheusAuth.CACertFile)
+		ap["prometheusAuth"] = auth
+	}
 
 	gatewayURL := ""
 	if ac.InferenceGateway != nil {

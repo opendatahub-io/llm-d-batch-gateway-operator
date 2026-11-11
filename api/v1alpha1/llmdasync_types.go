@@ -67,6 +67,11 @@ type AsyncProcessorSpec struct {
 	// +kubebuilder:validation:Pattern=`^([0-9]+(\.[0-9]+)?(ms|s|m|h))+$`
 	PrometheusCacheTTL string `json:"prometheusCacheTTL,omitempty"`
 
+	// PrometheusAuth authenticates gate metrics queries to a Prometheus API
+	// that requires it, such as OpenShift's Thanos Querier.
+	// +optional
+	PrometheusAuth *AsyncPrometheusAuthSpec `json:"prometheusAuth,omitempty"`
+
 	// TLS configures TLS for connections to inference gateways.
 	TLS *AsyncTLSSpec `json:"tls,omitempty"`
 
@@ -275,4 +280,28 @@ type AsyncWorkerPool struct {
 
 	// GateParams provides parameters for the gating mechanism.
 	GateParams map[string]string `json:"gateParams,omitempty"`
+}
+
+// AsyncPrometheusAuthSpec configures how the async-processor authenticates to
+// the Prometheus API at prometheusURL. Both fields are paths inside the
+// async-processor container; the operator does not mount the files.
+//
+// To query OpenShift's cluster monitoring, set prometheusURL to
+// https://thanos-querier.openshift-monitoring.svc:9091, use the service
+// account mount for both files
+// (/var/run/secrets/kubernetes.io/serviceaccount/token and
+// /var/run/secrets/kubernetes.io/serviceaccount/service-ca.crt), and grant the
+// async-processor service account the cluster-monitoring-view ClusterRole.
+// The operator does not create that binding.
+type AsyncPrometheusAuthSpec struct {
+	// BearerTokenFile is the path to a file holding the bearer token sent with
+	// every Prometheus query. It is re-read on each request, so rotated tokens apply.
+	// +kubebuilder:validation:MinLength=1
+	// +kubebuilder:validation:MaxLength=4096
+	BearerTokenFile string `json:"bearerTokenFile,omitempty"`
+
+	// CACertFile is the path to a PEM CA bundle used to verify the Prometheus server.
+	// +kubebuilder:validation:MinLength=1
+	// +kubebuilder:validation:MaxLength=4096
+	CACertFile string `json:"caCertFile,omitempty"`
 }
