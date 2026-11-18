@@ -130,6 +130,39 @@ when you use the Redis async transport. For the SQL async transport, ensure the
 referenced Secret contains `postgresql-url` and configure
 `spec.processor.asyncConfig.sql`.
 
+#### Google Cloud Storage
+
+Set exactly one of `spec.fileStorage.s3`, `spec.fileStorage.gcs`, or
+`spec.fileStorage.fs`. For GCS, use:
+
+```yaml
+spec:
+  fileStorage:
+    gcs:
+      bucket: batch-files
+      prefix: batch/
+      autoCreateBucket: false
+      verifyBucketOnStart: true
+```
+
+GCS uses Application Default Credentials or GKE Workload Identity. Do not put a
+GCS service-account key in the `LLMBatchGateway` CR or its Secret.
+
+For Workload Identity, bind the Google service account to the Kubernetes
+ServiceAccounts used by the API server, processor, and garbage collector, then
+annotate those three ServiceAccounts with
+`iam.gke.io/gcp-service-account: GSA_EMAIL`. The operator creates them after
+the `LLMBatchGateway` CR is applied.
+
+Grant the Google service account these permissions on the bucket:
+`storage.objects.create`, `storage.objects.get`, `storage.objects.delete`, and
+`storage.objects.list`. Use an IAM condition to limit `storage.objects.list` to
+object names that begin with the configured prefix. With
+`verifyBucketOnStart: true`, also grant `storage.buckets.get`. If
+`autoCreateBucket: true`, set `spec.fileStorage.gcs.projectId` to the Google
+Cloud project that will own the bucket, keep `verifyBucketOnStart: true`, and
+grant `storage.buckets.create`.
+
 ### Step 3: Create LLMBatchGateway CR
 
 ```bash
