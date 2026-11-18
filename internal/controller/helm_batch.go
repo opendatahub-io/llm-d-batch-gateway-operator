@@ -88,7 +88,7 @@ func specToBatchHelmValues(gw *batchv1alpha1.LLMBatchGateway, secretName string,
 	}
 
 	if len(gw.Spec.ImagePullSecrets) > 0 {
-		var secrets []any
+		secrets := make([]any, 0, len(gw.Spec.ImagePullSecrets))
 		for _, s := range gw.Spec.ImagePullSecrets {
 			secrets = append(secrets, map[string]any{"name": s.Name})
 		}
@@ -163,7 +163,7 @@ func specToBatchHelmValues(gw *batchv1alpha1.LLMBatchGateway, secretName string,
 			hr["annotations"] = toStringInterfaceMap(gw.Spec.HTTPRoute.Annotations)
 		}
 		if len(gw.Spec.HTTPRoute.ParentRefs) > 0 {
-			var refs []any
+			refs := make([]any, 0, len(gw.Spec.HTTPRoute.ParentRefs))
 			for _, ref := range gw.Spec.HTTPRoute.ParentRefs {
 				r := map[string]any{
 					"name": ref.Name,

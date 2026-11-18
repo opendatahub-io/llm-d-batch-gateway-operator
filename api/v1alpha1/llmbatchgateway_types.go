@@ -465,6 +465,7 @@ type ProcessorConfigSpec struct {
 
 	// ProgressTTLSeconds is retained for API compatibility. The upstream
 	// processor now writes progress to PostgreSQL and does not use this field.
+	//
 	// Deprecated: use progressUpdateInterval.
 	ProgressTTLSeconds int64 `json:"progressTTLSeconds,omitempty"`
 
