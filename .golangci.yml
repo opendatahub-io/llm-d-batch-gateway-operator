@@ -37,6 +37,11 @@ linters:
       - comments        # suppress missing comment violations on packages and exported symbols
       - std-error-handling  # suppress unchecked errors on well-known stdlib patterns (e.g. Close())
   settings:
+    goconst:
+      ignore-map-keys: true
+      ignore-string-values:
+        - monitoring.coreos.com
+      ignore-tests: true
     revive: # see https://github.com/mgechev/revive#available-rules for all options
       rules:
         - name: blank-imports
