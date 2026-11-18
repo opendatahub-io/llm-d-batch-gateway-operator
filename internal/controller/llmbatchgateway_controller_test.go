@@ -167,6 +167,185 @@ func TestValidateSpec(t *testing.T) {
 	})
 }
 
+func TestFileStorageBackendSelection(t *testing.T) {
+	ctx := context.Background()
+	tests := []struct {
+		name        string
+		fileStorage map[string]any
+		wantInvalid bool
+	}{
+		{
+			name: "gcs only",
+			fileStorage: map[string]any{
+				"gcs": map[string]any{
+					"bucket":              "batch-files",
+					"prefix":              "batch/",
+					"autoCreateBucket":    false,
+					"verifyBucketOnStart": true,
+				},
+			},
+		},
+		{
+			name: "s3 and gcs",
+			fileStorage: map[string]any{
+				"s3":  map[string]any{"bucket": "batch-files"},
+				"gcs": map[string]any{"bucket": "batch-files"},
+			},
+			wantInvalid: true,
+		},
+		{
+			name: "gcs and fs",
+			fileStorage: map[string]any{
+				"gcs": map[string]any{"bucket": "batch-files"},
+				"fs":  map[string]any{"claimName": "batch-files"},
+			},
+			wantInvalid: true,
+		},
+		{
+			name: "no backend",
+			fileStorage: map[string]any{
+				"retry": map[string]any{"maxRetries": 3},
+			},
+			wantInvalid: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			obj := &unstructured.Unstructured{}
+			obj.SetUnstructuredContent(map[string]any{
+				"apiVersion": batchv1alpha1.GroupVersion.String(),
+				"kind":       llmBatchGatewayKind,
+				"metadata": map[string]any{
+					"name":      "test-file-storage-" + strings.ReplaceAll(tt.name, " ", "-"),
+					"namespace": "default",
+				},
+				"spec": map[string]any{
+					"secretRef":   map[string]any{"name": "test-secrets"},
+					"fileStorage": tt.fileStorage,
+					"apiServer":   map[string]any{},
+					"gc":          map[string]any{},
+					"processor": map[string]any{
+						"asyncConfig": map[string]any{"redis": map[string]any{}},
+					},
+				},
+			})
+
+			err := k8sClient.Create(ctx, obj)
+			if !tt.wantInvalid {
+				if err != nil {
+					t.Fatalf("Create() error = %v, want nil", err)
+				}
+				t.Cleanup(func() { _ = k8sClient.Delete(ctx, obj) })
+				return
+			}
+			if !apierrors.IsInvalid(err) {
+				t.Fatalf("Create() error = %v, want Invalid", err)
+			}
+			if !strings.Contains(err.Error(), "exactly one of fileStorage.s3, fileStorage.gcs, or fileStorage.fs") {
+				t.Errorf("Create() error = %v, want backend selection message", err)
+			}
+		})
+	}
+}
+
+func TestGCSAutoCreateBucketRequiresProjectID(t *testing.T) {
+	ctx := context.Background()
+	tests := []struct {
+		name        string
+		projectID   any
+		wantInvalid bool
+	}{
+		{name: "missing project ID", projectID: nil, wantInvalid: true},
+		{name: "empty project ID", projectID: "", wantInvalid: true},
+		{name: "project ID set", projectID: "my-project"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			gcs := map[string]any{
+				"bucket":              "batch-files",
+				"autoCreateBucket":    true,
+				"verifyBucketOnStart": true,
+			}
+			if tt.projectID != nil {
+				gcs["projectId"] = tt.projectID
+			}
+
+			obj := &unstructured.Unstructured{}
+			obj.SetUnstructuredContent(map[string]any{
+				"apiVersion": batchv1alpha1.GroupVersion.String(),
+				"kind":       llmBatchGatewayKind,
+				"metadata": map[string]any{
+					"name":      "test-gcs-project-" + strings.ToLower(strings.ReplaceAll(tt.name, " ", "-")),
+					"namespace": "default",
+				},
+				"spec": map[string]any{
+					"secretRef":   map[string]any{"name": "test-secrets"},
+					"fileStorage": map[string]any{"gcs": gcs},
+					"apiServer":   map[string]any{},
+					"gc":          map[string]any{},
+					"processor": map[string]any{
+						"asyncConfig": map[string]any{"redis": map[string]any{}},
+					},
+				},
+			})
+
+			err := k8sClient.Create(ctx, obj)
+			if !tt.wantInvalid {
+				if err != nil {
+					t.Fatalf("Create() error = %v, want nil", err)
+				}
+				t.Cleanup(func() { _ = k8sClient.Delete(ctx, obj) })
+				return
+			}
+			if !apierrors.IsInvalid(err) {
+				t.Fatalf("Create() error = %v, want Invalid", err)
+			}
+			if !strings.Contains(err.Error(), "gcs.projectId is required when autoCreateBucket is true") {
+				t.Errorf("Create() error = %v, want projectId required message", err)
+			}
+		})
+	}
+}
+
+func TestGCSAutoCreateBucketRequiresVerifyBucketOnStart(t *testing.T) {
+	ctx := context.Background()
+	obj := &unstructured.Unstructured{}
+	obj.SetUnstructuredContent(map[string]any{
+		"apiVersion": batchv1alpha1.GroupVersion.String(),
+		"kind":       llmBatchGatewayKind,
+		"metadata": map[string]any{
+			"name":      "test-gcs-auto-create-without-verify",
+			"namespace": "default",
+		},
+		"spec": map[string]any{
+			"secretRef": map[string]any{"name": "test-secrets"},
+			"fileStorage": map[string]any{
+				"gcs": map[string]any{
+					"bucket":              "batch-files",
+					"projectId":           "my-project",
+					"autoCreateBucket":    true,
+					"verifyBucketOnStart": false,
+				},
+			},
+			"apiServer": map[string]any{},
+			"gc":        map[string]any{},
+			"processor": map[string]any{
+				"asyncConfig": map[string]any{"redis": map[string]any{}},
+			},
+		},
+	})
+
+	err := k8sClient.Create(ctx, obj)
+	if !apierrors.IsInvalid(err) {
+		t.Fatalf("Create() error = %v, want Invalid", err)
+	}
+	if !strings.Contains(err.Error(), "gcs.verifyBucketOnStart must be true when autoCreateBucket is true") {
+		t.Errorf("Create() error = %v, want verifyBucketOnStart required message", err)
+	}
+}
+
 func TestValidateSpecRejectsBothAsyncTransports(t *testing.T) {
 	g := minimalAsyncGateway()
 	g.Spec.Processor.AsyncConfig.SQL = &batchv1alpha1.AsyncSQLSpec{}

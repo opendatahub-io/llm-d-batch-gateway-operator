@@ -74,7 +74,7 @@ type LLMBatchGatewaySpec struct {
 	ExtraEndpoints []string `json:"extraEndpoints,omitempty"`
 
 	// FileStorage configures the file storage backend used to persist batch
-	// input/output files. Exactly one of s3 or fs must be configured.
+	// input/output files. Exactly one of s3, gcs, or fs must be configured.
 	// +kubebuilder:validation:Required
 	FileStorage *FileStorageSpec `json:"fileStorage"`
 
@@ -117,13 +117,16 @@ type LLMBatchGatewaySpec struct {
 // --- File Storage ---
 
 // FileStorageSpec configures the file storage backend.
-// Exactly one of s3 or fs must be set.
-// +kubebuilder:validation:XValidation:rule="has(self.s3) != has(self.fs)",message="exactly one of fileStorage.s3 or fileStorage.fs must be set"
+// Exactly one of s3, gcs, or fs must be set.
+// +kubebuilder:validation:XValidation:rule="(has(self.s3) ? 1 : 0) + (has(self.gcs) ? 1 : 0) + (has(self.fs) ? 1 : 0) == 1",message="exactly one of fileStorage.s3, fileStorage.gcs, or fileStorage.fs must be set"
 type FileStorageSpec struct {
-	// S3 configures S3-compatible object storage. Mutually exclusive with fs.
+	// S3 configures S3-compatible object storage. Mutually exclusive with gcs and fs.
 	S3 *S3StorageSpec `json:"s3,omitempty"`
 
-	// FS configures PVC-backed filesystem storage. Mutually exclusive with s3.
+	// GCS configures Google Cloud Storage. Mutually exclusive with s3 and fs.
+	GCS *GCSStorageSpec `json:"gcs,omitempty"`
+
+	// FS configures PVC-backed filesystem storage. Mutually exclusive with s3 and gcs.
 	FS *FSStorageSpec `json:"fs,omitempty"`
 
 	// Retry configures retry behaviour for transient file storage errors.
@@ -163,6 +166,39 @@ type S3StorageSpec struct {
 
 	// AutoCreateBucket causes the operator to create the bucket if it does not exist.
 	AutoCreateBucket *bool `json:"autoCreateBucket,omitempty"`
+}
+
+// GCSStorageSpec configures Google Cloud Storage access. Authentication uses
+// Application Default Credentials, typically GKE Workload Identity. GCS
+// service-account keys are not stored in the LLMBatchGateway CR or Secret.
+// +kubebuilder:validation:XValidation:rule="!self.autoCreateBucket || (has(self.projectId) && size(self.projectId) > 0)",message="gcs.projectId is required when autoCreateBucket is true"
+// +kubebuilder:validation:XValidation:rule="!self.autoCreateBucket || self.verifyBucketOnStart",message="gcs.verifyBucketOnStart must be true when autoCreateBucket is true"
+type GCSStorageSpec struct {
+	// Bucket is the GCS bucket name used for all file storage.
+	// +kubebuilder:validation:MinLength=1
+	// +kubebuilder:validation:MaxLength=222
+	Bucket string `json:"bucket"`
+
+	// Prefix is an optional object prefix applied to all stored objects.
+	// +optional
+	// +kubebuilder:validation:MaxLength=1024
+	Prefix string `json:"prefix,omitempty"`
+
+	// ProjectID is the Google Cloud project used to create the bucket. It is
+	// required only when autoCreateBucket is true.
+	// +optional
+	// +kubebuilder:validation:MaxLength=253
+	ProjectID string `json:"projectId,omitempty"`
+
+	// AutoCreateBucket lets the Batch Gateway create the bucket when it does not exist.
+	// +optional
+	// +kubebuilder:default=false
+	AutoCreateBucket bool `json:"autoCreateBucket"`
+
+	// VerifyBucketOnStart checks that the bucket exists when each component starts.
+	// +optional
+	// +kubebuilder:default=true
+	VerifyBucketOnStart bool `json:"verifyBucketOnStart"`
 }
 
 // FSStorageSpec configures PVC-backed filesystem storage.

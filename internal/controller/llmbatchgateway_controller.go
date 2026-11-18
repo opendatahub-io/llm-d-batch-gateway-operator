@@ -43,6 +43,7 @@ const (
 	dispatchModeAsync        = "async"
 	dispatchModeSync         = "sync"
 	dbBackendPostgreSQL      = "postgresql"
+	fileStorageTypeGCS       = "gcs"
 	gatePrometheusBudget     = "prometheus-budget"
 	gatePrometheusQuery      = "prometheus-query"
 	gatePrometheusSaturation = "prometheus-saturation"
