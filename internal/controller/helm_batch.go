@@ -53,6 +53,18 @@ func specToBatchHelmValues(gw *batchv1alpha1.LLMBatchGateway, secretName string,
 			}
 			fc["s3"] = s3Vals
 		}
+		if gw.Spec.FileStorage.GCS != nil {
+			fc["type"] = fileStorageTypeGCS
+			gcs := gw.Spec.FileStorage.GCS
+			gcsVals := map[string]any{
+				"bucket":              gcs.Bucket,
+				"prefix":              gcs.Prefix,
+				"autoCreateBucket":    gcs.AutoCreateBucket,
+				"verifyBucketOnStart": gcs.VerifyBucketOnStart,
+			}
+			setIfNotEmpty(gcsVals, "projectId", gcs.ProjectID)
+			fc["gcs"] = gcsVals
+		}
 		if gw.Spec.FileStorage.FS != nil {
 			fc["type"] = "fs"
 			fs := gw.Spec.FileStorage.FS
