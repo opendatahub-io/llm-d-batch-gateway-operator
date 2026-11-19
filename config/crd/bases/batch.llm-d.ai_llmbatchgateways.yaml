@@ -1195,6 +1195,10 @@ spec:
                           their default attribute. Empty omits it.
                         maxLength: 253
                         type: string
+                        x-kubernetes-validations:
+                        - message: tenantMetadataKey must not be traceparent or tracestate
+                          rule: self.lowerAscii() != 'traceparent' && self.lowerAscii()
+                            != 'tracestate'
                     type: object
                   dispatchMode:
                     description: |-

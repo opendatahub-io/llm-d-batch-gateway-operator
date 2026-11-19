@@ -825,6 +825,33 @@ func TestLLMBatchGatewayResumableFinalizeTimeoutValidation(t *testing.T) {
 	})
 }
 
+func TestLLMBatchGatewayTenantMetadataKeyValidation(t *testing.T) {
+	ctx := context.Background()
+	gw := newTestGateway("test-tenant-metadata-key")
+	gw.Spec.Processor.Config = &batchv1alpha1.ProcessorConfigSpec{}
+
+	if err := k8sClient.Create(ctx, gw); err != nil {
+		t.Fatalf("Create() with omitted tenantMetadataKey: %v", err)
+	}
+	t.Cleanup(func() { _ = k8sClient.Delete(ctx, gw) })
+
+	for _, key := range []string{"traceparent", "tracestate", "TraceParent"} {
+		gw.Spec.Processor.Config.TenantMetadataKey = key
+		err := k8sClient.Update(ctx, gw)
+		if !apierrors.IsInvalid(err) {
+			t.Fatalf("Update() with tenantMetadataKey %q error = %v, want Invalid", key, err)
+		}
+		if !strings.Contains(err.Error(), "tenantMetadataKey must not be traceparent or tracestate") {
+			t.Errorf("Update() with tenantMetadataKey %q error = %v, want reserved-key message", key, err)
+		}
+	}
+
+	gw.Spec.Processor.Config.TenantMetadataKey = "userid"
+	if err := k8sClient.Update(ctx, gw); err != nil {
+		t.Fatalf("Update() with tenantMetadataKey userid: %v", err)
+	}
+}
+
 func TestReconcile(t *testing.T) {
 	ctx := context.Background()
 

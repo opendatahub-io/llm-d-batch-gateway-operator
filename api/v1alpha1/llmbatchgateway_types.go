@@ -488,6 +488,7 @@ type ProcessorConfigSpec struct {
 	// (redis-quota, sql-quota) can tell tenants apart. Use "userid" to match
 	// their default attribute. Empty omits it.
 	// +kubebuilder:validation:MaxLength=253
+	// +kubebuilder:validation:XValidation:rule="self.lowerAscii() != 'traceparent' && self.lowerAscii() != 'tracestate'",message="tenantMetadataKey must not be traceparent or tracestate"
 	TenantMetadataKey string `json:"tenantMetadataKey,omitempty"`
 
 	// EnablePprof enables the Go pprof profiling HTTP endpoints.
