@@ -346,6 +346,37 @@ func TestGCSAutoCreateBucketRequiresVerifyBucketOnStart(t *testing.T) {
 	}
 }
 
+func TestGCSCRDDefaultsApply(t *testing.T) {
+	ctx := context.Background()
+	gw := &batchv1alpha1.LLMBatchGateway{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "test-gcs-crd-defaults",
+			Namespace: "default",
+		},
+		Spec: batchv1alpha1.LLMBatchGatewaySpec{
+			SecretRef:   corev1.SecretReference{Name: "test-secrets"},
+			FileStorage: &batchv1alpha1.FileStorageSpec{GCS: &batchv1alpha1.GCSStorageSpec{Bucket: "batch-files"}},
+			APIServer:   batchv1alpha1.APIServerSpec{},
+			GC:          batchv1alpha1.GCSpec{},
+			Processor: batchv1alpha1.ProcessorSpec{
+				AsyncConfig: &batchv1alpha1.AsyncProcessorSpec{Redis: &batchv1alpha1.AsyncRedisSpec{}},
+			},
+		},
+	}
+
+	if err := k8sClient.Create(ctx, gw); err != nil {
+		t.Fatalf("Create() error = %v", err)
+	}
+	t.Cleanup(func() { _ = k8sClient.Delete(ctx, gw) })
+
+	if gw.Spec.FileStorage.GCS.AutoCreateBucket == nil || *gw.Spec.FileStorage.GCS.AutoCreateBucket {
+		t.Errorf("gcs.autoCreateBucket = %v, want false", gw.Spec.FileStorage.GCS.AutoCreateBucket)
+	}
+	if gw.Spec.FileStorage.GCS.VerifyBucketOnStart == nil || !*gw.Spec.FileStorage.GCS.VerifyBucketOnStart {
+		t.Errorf("gcs.verifyBucketOnStart = %v, want true", gw.Spec.FileStorage.GCS.VerifyBucketOnStart)
+	}
+}
+
 func TestValidateSpecRejectsBothAsyncTransports(t *testing.T) {
 	g := minimalAsyncGateway()
 	g.Spec.Processor.AsyncConfig.SQL = &batchv1alpha1.AsyncSQLSpec{}

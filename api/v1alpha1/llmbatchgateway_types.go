@@ -193,12 +193,12 @@ type GCSStorageSpec struct {
 	// AutoCreateBucket lets the Batch Gateway create the bucket when it does not exist.
 	// +optional
 	// +kubebuilder:default=false
-	AutoCreateBucket bool `json:"autoCreateBucket"`
+	AutoCreateBucket *bool `json:"autoCreateBucket,omitempty"`
 
 	// VerifyBucketOnStart checks that the bucket exists when each component starts.
 	// +optional
 	// +kubebuilder:default=true
-	VerifyBucketOnStart bool `json:"verifyBucketOnStart"`
+	VerifyBucketOnStart *bool `json:"verifyBucketOnStart,omitempty"`
 }
 
 // FSStorageSpec configures PVC-backed filesystem storage.

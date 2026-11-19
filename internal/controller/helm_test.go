@@ -637,8 +637,8 @@ func TestSpecToHelmValues_GCSStorage(t *testing.T) {
 		GCS: &batchv1alpha1.GCSStorageSpec{
 			Bucket:              "batch-files",
 			Prefix:              "batch/",
-			AutoCreateBucket:    false,
-			VerifyBucketOnStart: true,
+			AutoCreateBucket:    ptr.To(false),
+			VerifyBucketOnStart: ptr.To(true),
 		},
 	}
 
@@ -671,8 +671,8 @@ func TestSpecToHelmValues_GCSStorageAutoCreate(t *testing.T) {
 			Bucket:              "batch-files",
 			Prefix:              "batch/",
 			ProjectID:           "my-project",
-			AutoCreateBucket:    true,
-			VerifyBucketOnStart: true,
+			AutoCreateBucket:    ptr.To(true),
+			VerifyBucketOnStart: ptr.To(true),
 		},
 	}
 
@@ -701,8 +701,8 @@ func TestRenderBatchChart_GCSStorage(t *testing.T) {
 			Bucket:              "batch-files",
 			Prefix:              "batch/",
 			ProjectID:           "my-project",
-			AutoCreateBucket:    true,
-			VerifyBucketOnStart: true,
+			AutoCreateBucket:    ptr.To(true),
+			VerifyBucketOnStart: ptr.To(true),
 		},
 	}
 
