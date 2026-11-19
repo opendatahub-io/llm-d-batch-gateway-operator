@@ -453,7 +453,7 @@ func TestRenderBatchChart_ResumableDefaults(t *testing.T) {
 	}
 
 	for _, obj := range objects {
-		if obj.GetKind() != "ConfigMap" || !strings.Contains(obj.GetName(), "processor") {
+		if obj.GetKind() != kindConfigMap || !strings.Contains(obj.GetName(), "processor") {
 			continue
 		}
 		data, found, err := unstructured.NestedString(obj.Object, "data", "config.yaml")
@@ -465,6 +465,42 @@ func TestRenderBatchChart_ResumableDefaults(t *testing.T) {
 		}
 		if !strings.Contains(data, `finalize_timeout: "30m"`) {
 			t.Fatalf("processor ConfigMap resumable defaults = %q, want finalize_timeout 30m", data)
+		}
+		return
+	}
+
+	t.Fatal("processor ConfigMap not rendered")
+}
+
+func TestRenderBatchChart_TenantMetadataKey(t *testing.T) {
+	renderer, err := NewHelmRenderer("../../batch-gateway/charts/batch-gateway", testImages(), tlspkg.ProfileValues{})
+	if err != nil {
+		t.Fatalf("NewHelmRenderer() error: %v", err)
+	}
+
+	gw := minimalGateway()
+	gw.Spec.Processor.Config = &batchv1alpha1.ProcessorConfigSpec{
+		TenantMetadataKey: "userid",
+	}
+
+	objects, err := renderer.RenderBatchChart(gw, testSecretName(gw))
+	if err != nil {
+		t.Fatalf("RenderBatchChart() error: %v", err)
+	}
+
+	for _, obj := range objects {
+		if obj.GetKind() != "ConfigMap" || !strings.Contains(obj.GetName(), "processor") {
+			continue
+		}
+		data, found, err := unstructured.NestedString(obj.Object, "data", "config.yaml")
+		if err != nil {
+			t.Fatalf("reading processor ConfigMap data: %v", err)
+		}
+		if !found {
+			t.Fatal("processor ConfigMap has no data.config.yaml")
+		}
+		if !strings.Contains(data, `tenant_metadata_key: "userid"`) {
+			t.Fatalf("processor ConfigMap tenant_metadata_key missing; got:\n%s", data)
 		}
 		return
 	}
@@ -1280,6 +1316,21 @@ func TestSpecToHelmValues_RouteKeyMethod(t *testing.T) {
 	config := processor["config"].(map[string]interface{})
 	if got := config["routeKeyMethod"]; got != "tenant" {
 		t.Errorf("routeKeyMethod = %v, want tenant", got)
+	}
+}
+
+func TestSpecToHelmValues_TenantMetadataKey(t *testing.T) {
+	gw := minimalGateway()
+	gw.Spec.Processor.Config = &batchv1alpha1.ProcessorConfigSpec{
+		TenantMetadataKey: "userid",
+	}
+
+	vals := specToBatchHelmValues(gw, testSecretName(gw), testImages(), tlspkg.ProfileValues{})
+
+	processor := vals["processor"].(map[string]interface{})
+	config := processor["config"].(map[string]interface{})
+	if got := config["tenantMetadataKey"]; got != "userid" {
+		t.Errorf("tenantMetadataKey = %v, want userid", got)
 	}
 }
 

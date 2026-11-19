@@ -473,6 +473,7 @@ func mergeProcessorConfig(m map[string]interface{}, cfg *batchv1alpha1.Processor
 		m["sendFairnessHeader"] = *cfg.SendFairnessHeader
 	}
 	setIfNotEmpty(m, "routeKeyMethod", cfg.RouteKeyMethod)
+	setIfNotEmpty(m, "tenantMetadataKey", cfg.TenantMetadataKey)
 	if cfg.EnablePprof {
 		m["enablePprof"] = true
 	}
