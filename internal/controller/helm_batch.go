@@ -57,10 +57,14 @@ func specToBatchHelmValues(gw *batchv1alpha1.LLMBatchGateway, secretName string,
 			fc["type"] = fileStorageTypeGCS
 			gcs := gw.Spec.FileStorage.GCS
 			gcsVals := map[string]any{
-				"bucket":              gcs.Bucket,
-				"prefix":              gcs.Prefix,
-				"autoCreateBucket":    gcs.AutoCreateBucket,
-				"verifyBucketOnStart": gcs.VerifyBucketOnStart,
+				"bucket": gcs.Bucket,
+				"prefix": gcs.Prefix,
+			}
+			if gcs.AutoCreateBucket != nil {
+				gcsVals["autoCreateBucket"] = *gcs.AutoCreateBucket
+			}
+			if gcs.VerifyBucketOnStart != nil {
+				gcsVals["verifyBucketOnStart"] = *gcs.VerifyBucketOnStart
 			}
 			setIfNotEmpty(gcsVals, "projectId", gcs.ProjectID)
 			fc["gcs"] = gcsVals

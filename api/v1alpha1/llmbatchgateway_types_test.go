@@ -2,8 +2,23 @@ package v1alpha1
 
 import (
 	"encoding/json"
+	"strings"
 	"testing"
 )
+
+func TestGCSStorageSpecOmitsUnsetBooleans(t *testing.T) {
+	data, err := json.Marshal(GCSStorageSpec{Bucket: "batch-files"})
+	if err != nil {
+		t.Fatalf("Marshal() error = %v", err)
+	}
+
+	got := string(data)
+	for _, field := range []string{"autoCreateBucket", "verifyBucketOnStart"} {
+		if strings.Contains(got, field) {
+			t.Errorf("marshaled GCSStorageSpec contains %q: %s", field, got)
+		}
+	}
+}
 
 func TestComponentExtraEndpointsPreservesEmptyList(t *testing.T) {
 	empty := []string{}

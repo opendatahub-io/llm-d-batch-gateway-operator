@@ -157,7 +157,9 @@ the `LLMBatchGateway` CR is applied.
 Grant the Google service account these permissions on the bucket:
 `storage.objects.create`, `storage.objects.get`, `storage.objects.delete`, and
 `storage.objects.list`. Use an IAM condition to limit `storage.objects.list` to
-object names that begin with the configured prefix. With
+object names that begin with the configured prefix. Use:
+`resource.name.startsWith('projects/_/buckets/<bucket>/objects/<prefix>') || api.getAttribute('storage.googleapis.com/objectListPrefix', '').startsWith('<prefix>')`.
+With
 `verifyBucketOnStart: true`, also grant `storage.buckets.get`. If
 `autoCreateBucket: true`, set `spec.fileStorage.gcs.projectId` to the Google
 Cloud project that will own the bucket, keep `verifyBucketOnStart: true`, and
