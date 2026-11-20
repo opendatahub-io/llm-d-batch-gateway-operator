@@ -8,6 +8,7 @@ import (
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
+	utilyaml "k8s.io/apimachinery/pkg/util/yaml"
 	"k8s.io/utils/ptr"
 
 	batchv1alpha1 "github.com/opendatahub-io/llm-d-batch-gateway-operator/api/v1alpha1"
@@ -663,6 +664,145 @@ func TestSpecToHelmValues_FSStorage(t *testing.T) {
 	}
 	if got := retry["initialBackoff"]; got != "500ms" {
 		t.Errorf("retry.initialBackoff = %v, want 500ms", got)
+	}
+}
+
+func TestSpecToHelmValues_GCSStorage(t *testing.T) {
+	gw := minimalGateway()
+	gw.Spec.FileStorage = &batchv1alpha1.FileStorageSpec{
+		GCS: &batchv1alpha1.GCSStorageSpec{
+			Bucket:              "batch-files",
+			Prefix:              "batch/",
+			AutoCreateBucket:    ptr.To(false),
+			VerifyBucketOnStart: ptr.To(true),
+		},
+	}
+
+	vals := specToBatchHelmValues(gw, testSecretName(gw), testImages(), tlspkg.ProfileValues{})
+
+	global := vals["global"].(map[string]interface{})
+	fc := global["fileClient"].(map[string]interface{})
+	if got := fc["type"]; got != "gcs" {
+		t.Errorf("fileClient.type = %v, want gcs", got)
+	}
+	gcs := fc["gcs"].(map[string]interface{})
+	if got := gcs["bucket"]; got != "batch-files" {
+		t.Errorf("gcs.bucket = %v, want batch-files", got)
+	}
+	if got := gcs["prefix"]; got != "batch/" {
+		t.Errorf("gcs.prefix = %v, want batch/", got)
+	}
+	if got := gcs["autoCreateBucket"]; got != false {
+		t.Errorf("gcs.autoCreateBucket = %v, want false", got)
+	}
+	if got := gcs["verifyBucketOnStart"]; got != true {
+		t.Errorf("gcs.verifyBucketOnStart = %v, want true", got)
+	}
+}
+
+func TestSpecToHelmValues_GCSStorageAutoCreate(t *testing.T) {
+	gw := minimalGateway()
+	gw.Spec.FileStorage = &batchv1alpha1.FileStorageSpec{
+		GCS: &batchv1alpha1.GCSStorageSpec{
+			Bucket:              "batch-files",
+			Prefix:              "batch/",
+			ProjectID:           "my-project",
+			AutoCreateBucket:    ptr.To(true),
+			VerifyBucketOnStart: ptr.To(true),
+		},
+	}
+
+	vals := specToBatchHelmValues(gw, testSecretName(gw), testImages(), tlspkg.ProfileValues{})
+
+	global := vals["global"].(map[string]interface{})
+	fc := global["fileClient"].(map[string]interface{})
+	gcs := fc["gcs"].(map[string]interface{})
+	if got := gcs["projectId"]; got != "my-project" {
+		t.Errorf("gcs.projectId = %v, want my-project", got)
+	}
+	if got := gcs["autoCreateBucket"]; got != true {
+		t.Errorf("gcs.autoCreateBucket = %v, want true", got)
+	}
+}
+
+func TestRenderBatchChart_GCSStorage(t *testing.T) {
+	renderer, err := NewHelmRenderer("../../batch-gateway/charts/batch-gateway", testImages(), tlspkg.ProfileValues{})
+	if err != nil {
+		t.Fatalf("NewHelmRenderer() error = %v", err)
+	}
+
+	gw := minimalGateway()
+	gw.Spec.FileStorage = &batchv1alpha1.FileStorageSpec{
+		GCS: &batchv1alpha1.GCSStorageSpec{
+			Bucket:              "batch-files",
+			Prefix:              "batch/",
+			ProjectID:           "my-project",
+			AutoCreateBucket:    ptr.To(true),
+			VerifyBucketOnStart: ptr.To(true),
+		},
+	}
+
+	objects, err := renderer.RenderBatchChart(gw, testSecretName(gw))
+	if err != nil {
+		t.Fatalf("RenderBatchChart() error = %v", err)
+	}
+
+	seen := map[string]bool{}
+	for _, obj := range objects {
+		if obj.GetKind() != kindConfigMap {
+			continue
+		}
+		component := obj.GetLabels()["app.kubernetes.io/component"]
+		if component != "apiserver" && component != "processor" && component != "gc" {
+			continue
+		}
+		if seen[component] {
+			t.Fatalf("rendered more than one ConfigMap for component %q", component)
+		}
+		seen[component] = true
+
+		data, found, err := unstructured.NestedString(obj.Object, "data", "config.yaml")
+		if err != nil || !found {
+			t.Fatalf("reading %s ConfigMap data: found=%v error=%v", component, found, err)
+		}
+		var parsed struct {
+			FileClient struct {
+				Type string `json:"type"`
+				GCS  struct {
+					Bucket              string `json:"bucket"`
+					Prefix              string `json:"prefix"`
+					ProjectID           string `json:"project_id"`
+					AutoCreateBucket    bool   `json:"auto_create_bucket"`
+					VerifyBucketOnStart bool   `json:"verify_bucket_on_start"`
+				} `json:"gcs"`
+			} `json:"file_client"`
+		}
+		if err := utilyaml.Unmarshal([]byte(data), &parsed); err != nil {
+			t.Fatalf("parsing %s config.yaml: %v", component, err)
+		}
+		if parsed.FileClient.Type != "gcs" {
+			t.Errorf("%s file_client.type = %q, want gcs", component, parsed.FileClient.Type)
+		}
+		if parsed.FileClient.GCS.Bucket != "batch-files" {
+			t.Errorf("%s gcs.bucket = %q, want batch-files", component, parsed.FileClient.GCS.Bucket)
+		}
+		if parsed.FileClient.GCS.Prefix != "batch/" {
+			t.Errorf("%s gcs.prefix = %q, want batch/", component, parsed.FileClient.GCS.Prefix)
+		}
+		if parsed.FileClient.GCS.ProjectID != "my-project" {
+			t.Errorf("%s gcs.project_id = %q, want my-project", component, parsed.FileClient.GCS.ProjectID)
+		}
+		if !parsed.FileClient.GCS.AutoCreateBucket {
+			t.Errorf("%s gcs.auto_create_bucket = false, want true", component)
+		}
+		if !parsed.FileClient.GCS.VerifyBucketOnStart {
+			t.Errorf("%s gcs.verify_bucket_on_start = false, want true", component)
+		}
+	}
+	for _, component := range []string{"apiserver", "processor", "gc"} {
+		if !seen[component] {
+			t.Errorf("no %s ConfigMap rendered", component)
+		}
 	}
 }
 

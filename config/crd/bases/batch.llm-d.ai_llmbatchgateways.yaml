@@ -268,11 +268,11 @@ spec:
               fileStorage:
                 description: |-
                   FileStorage configures the file storage backend used to persist batch
-                  input/output files. Exactly one of s3 or fs must be configured.
+                  input/output files. Exactly one of s3, gcs, or fs must be configured.
                 properties:
                   fs:
                     description: FS configures PVC-backed filesystem storage. Mutually
-                      exclusive with s3.
+                      exclusive with s3 and gcs.
                     properties:
                       basePath:
                         description: BasePath is the root directory inside the PVC
@@ -290,6 +290,48 @@ spec:
                     x-kubernetes-validations:
                     - message: fs.claimName is required
                       rule: size(self.claimName) > 0
+                  gcs:
+                    description: GCS configures Google Cloud Storage. Mutually exclusive
+                      with s3 and fs.
+                    properties:
+                      autoCreateBucket:
+                        default: false
+                        description: AutoCreateBucket lets the Batch Gateway create
+                          the bucket when it does not exist.
+                        type: boolean
+                      bucket:
+                        description: Bucket is the GCS bucket name used for all file
+                          storage.
+                        maxLength: 222
+                        minLength: 1
+                        type: string
+                      prefix:
+                        description: Prefix is an optional object prefix applied to
+                          all stored objects.
+                        maxLength: 1024
+                        type: string
+                      projectId:
+                        description: |-
+                          ProjectID is the Google Cloud project used to create the bucket. It is
+                          required only when autoCreateBucket is true.
+                        maxLength: 253
+                        type: string
+                      verifyBucketOnStart:
+                        default: true
+                        description: VerifyBucketOnStart checks that the bucket exists
+                          when each component starts.
+                        type: boolean
+                    required:
+                    - bucket
+                    type: object
+                    x-kubernetes-validations:
+                    - message: gcs.projectId is required when autoCreateBucket is
+                        true
+                      rule: '!self.autoCreateBucket || (has(self.projectId) && size(self.projectId)
+                        > 0)'
+                    - message: gcs.verifyBucketOnStart must be true when autoCreateBucket
+                        is true
+                      rule: '!self.autoCreateBucket || self.verifyBucketOnStart'
                   retry:
                     description: Retry configures retry behaviour for transient file
                       storage errors.
@@ -316,7 +358,7 @@ spec:
                     type: object
                   s3:
                     description: S3 configures S3-compatible object storage. Mutually
-                      exclusive with fs.
+                      exclusive with gcs and fs.
                     properties:
                       accessKeyId:
                         description: |-
@@ -359,9 +401,10 @@ spec:
                     type: object
                 type: object
                 x-kubernetes-validations:
-                - message: exactly one of fileStorage.s3 or fileStorage.fs must be
-                    set
-                  rule: has(self.s3) != has(self.fs)
+                - message: exactly one of fileStorage.s3, fileStorage.gcs, or fileStorage.fs
+                    must be set
+                  rule: '(has(self.s3) ? 1 : 0) + (has(self.gcs) ? 1 : 0) + (has(self.fs)
+                    ? 1 : 0) == 1'
               gc:
                 description: GC configures the garbage-collector component that expires
                   old jobs and files.
