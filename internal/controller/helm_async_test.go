@@ -299,6 +299,30 @@ func TestSpecToAsyncHelmValues_TLS(t *testing.T) {
 	}
 }
 
+func TestSpecToAsyncHelmValues_PrometheusAuth(t *testing.T) {
+	gw := minimalAsyncGateway()
+	vals := specToAsyncHelmValues(gw, testSecretName(gw), testImages())
+	if _, ok := vals["ap"].(map[string]any)["prometheusAuth"]; ok {
+		t.Error("ap.prometheusAuth set without spec.processor.asyncConfig.prometheusAuth")
+	}
+
+	gw.Spec.Processor.AsyncConfig.PrometheusAuth = &batchv1alpha1.AsyncPrometheusAuthSpec{
+		BearerTokenFile: "/var/run/secrets/kubernetes.io/serviceaccount/token",
+		CACertFile:      "/var/run/secrets/kubernetes.io/serviceaccount/service-ca.crt",
+	}
+	vals = specToAsyncHelmValues(gw, testSecretName(gw), testImages())
+	auth, ok := vals["ap"].(map[string]any)["prometheusAuth"].(map[string]any)
+	if !ok {
+		t.Fatal("ap.prometheusAuth not set")
+	}
+	if got := auth["bearerTokenFile"]; got != "/var/run/secrets/kubernetes.io/serviceaccount/token" {
+		t.Errorf("prometheusAuth.bearerTokenFile = %v", got)
+	}
+	if got := auth["caCertFile"]; got != "/var/run/secrets/kubernetes.io/serviceaccount/service-ca.crt" {
+		t.Errorf("prometheusAuth.caCertFile = %v", got)
+	}
+}
+
 func TestSpecToAsyncHelmValues_TransformConfig(t *testing.T) {
 	gw := minimalAsyncGateway()
 	gw.Spec.Processor.AsyncConfig.TransformConfig = &batchv1alpha1.AsyncTransformConfig{

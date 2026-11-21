@@ -663,6 +663,25 @@ spec:
                               type: string
                             type: object
                         type: object
+                      prometheusAuth:
+                        description: |-
+                          PrometheusAuth authenticates gate metrics queries to a Prometheus API
+                          that requires it, such as OpenShift's Thanos Querier.
+                        properties:
+                          bearerTokenFile:
+                            description: |-
+                              BearerTokenFile is the path to a file holding the bearer token sent with
+                              every Prometheus query. It is re-read on each request, so rotated tokens apply.
+                            maxLength: 4096
+                            minLength: 1
+                            type: string
+                          caCertFile:
+                            description: CACertFile is the path to a PEM CA bundle
+                              used to verify the Prometheus server.
+                            maxLength: 4096
+                            minLength: 1
+                            type: string
+                        type: object
                       prometheusCacheTTL:
                         description: PrometheusCacheTTL is the cache duration for
                           Prometheus query results (e.g. "30s").
