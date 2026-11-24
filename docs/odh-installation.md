@@ -165,6 +165,24 @@ With
 Cloud project that will own the bucket, keep `verifyBucketOnStart: true`, and
 grant `storage.buckets.create`.
 
+To cap each shared PostgreSQL pool used by the API server, processor, and GC,
+set `spec.dbClient.postgresql.pool.maxConnections`. A positive value overrides
+`pool_max_conns` in the PostgreSQL URL; each pool uses at least two connections.
+Zero or omission preserves the URL's `pool_max_conns` when set, otherwise the
+pgx default. This is separate from
+`spec.processor.asyncConfig.sql.maxConnections`, which caps the async SQL queue
+pool.
+
+When proxy-token validation is enabled, the referenced Secret must contain `apiserver-proxy-token` and the auth proxy must send it in `X-Gateway-Token`; set `spec.apiServer.config.allowAnonymousTenant` only for non-production use without an auth proxy (the local samples enable it).
+
+This option requires a Batch Gateway chart revision with API-server
+NetworkPolicy support. The operator creates no API-server `NetworkPolicy` unless
+`spec.apiServer.networkPolicy.enabled` is `true`; when omitted or false, this
+feature does not restrict ingress. When enabled, `api.from` must list allowed
+peers. An empty or omitted `observability.from` allows no peers to reach the
+observability port. Each peer follows native Kubernetes `NetworkPolicyPeer`
+rules.
+
 ### Step 3: Create LLMBatchGateway CR
 
 ```bash

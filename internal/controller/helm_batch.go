@@ -23,6 +23,13 @@ func specToBatchHelmValues(gw *batchv1alpha1.LLMBatchGateway, secretName string,
 	dbClient := map[string]any{
 		"type": dbType,
 	}
+	if dbClientSpec := gw.Spec.DBClient; dbClientSpec != nil && dbClientSpec.PostgreSQL != nil && dbClientSpec.PostgreSQL.Pool != nil && dbClientSpec.PostgreSQL.Pool.MaxConnections != nil {
+		dbClient["postgresql"] = map[string]any{
+			"pool": map[string]any{
+				"maxConnections": int64(*dbClientSpec.PostgreSQL.Pool.MaxConnections),
+			},
+		}
+	}
 	global := map[string]any{
 		"secretName": secretName,
 		"dbClient":   dbClient,
@@ -142,6 +149,9 @@ func specToBatchHelmValues(gw *batchv1alpha1.LLMBatchGateway, secretName string,
 				"verbosity": int64(gw.Spec.APIServer.Config.Logging.Verbosity),
 			}
 		}
+	}
+	if gw.Spec.APIServer.NetworkPolicy != nil {
+		apiserver["networkPolicy"] = apiServerNetworkPolicyToMap(gw.Spec.APIServer.NetworkPolicy)
 	}
 
 	// TLS
@@ -421,10 +431,32 @@ func apiServerConfigToMap(cfg *batchv1alpha1.APIServerConfigSpec) map[string]int
 	if len(cfg.InputHeaders) > 0 {
 		m["inputHeaders"] = toStringInterfaceMap(cfg.InputHeaders)
 	}
+	if cfg.AllowAnonymousTenant {
+		m["allowAnonymousTenant"] = true
+	}
 	if cfg.EnablePprof {
 		m["enablePprof"] = true
 	}
 	return m
+}
+
+func apiServerNetworkPolicyToMap(cfg *batchv1alpha1.APIServerNetworkPolicySpec) map[string]interface{} {
+	networkPolicy := map[string]interface{}{
+		"enabled": cfg.Enabled,
+		"api": map[string]interface{}{
+			"from": []interface{}{},
+		},
+		"observability": map[string]interface{}{
+			"from": []interface{}{},
+		},
+	}
+	if cfg.API != nil {
+		networkPolicy["api"].(map[string]interface{})["from"] = networkPolicyPeersToHelmValues(cfg.API.From)
+	}
+	if cfg.Observability != nil {
+		networkPolicy["observability"].(map[string]interface{})["from"] = networkPolicyPeersToHelmValues(cfg.Observability.From)
+	}
+	return networkPolicy
 }
 
 func mergeProcessorConfig(m map[string]interface{}, cfg *batchv1alpha1.ProcessorConfigSpec) {

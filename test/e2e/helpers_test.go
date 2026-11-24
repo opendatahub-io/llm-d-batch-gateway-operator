@@ -611,7 +611,14 @@ func requireHTTPStatus(t *testing.T, url string, want int) {
 func requireHTTPSuccess(t *testing.T, url string) {
 	t.Helper()
 	client := &http.Client{Timeout: 10 * time.Second}
-	resp, err := client.Get(url)
+	req, err := http.NewRequest(http.MethodGet, url, nil)
+	if err != nil {
+		t.Fatalf("create GET request for %s: %v", url, err)
+	}
+	// Upstream Batch Gateway requires a tenant identity unless anonymous tenants
+	// are explicitly enabled for local development.
+	req.Header.Set("X-MaaS-Username", "operator-e2e")
+	resp, err := client.Do(req)
 	if err != nil {
 		t.Fatalf("GET %s: %v", url, err)
 	}

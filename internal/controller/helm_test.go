@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	corev1 "k8s.io/api/core/v1"
+	networkingv1 "k8s.io/api/networking/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
@@ -1316,6 +1317,26 @@ func TestSpecToHelmValues_DBClientHasNoRedisSettings(t *testing.T) {
 	}
 }
 
+func TestSpecToHelmValues_DBClientPostgreSQLPoolMaxConnections(t *testing.T) {
+	maxConnections := int32(12)
+	gw := minimalGateway()
+	gw.Spec.DBClient = &batchv1alpha1.DBClientSpec{
+		PostgreSQL: &batchv1alpha1.PostgreSQLDBClientSpec{
+			Pool: &batchv1alpha1.PostgreSQLPoolSpec{MaxConnections: &maxConnections},
+		},
+	}
+
+	vals := specToBatchHelmValues(gw, testSecretName(gw), testImages(), tlspkg.ProfileValues{})
+
+	global := vals["global"].(map[string]interface{})
+	dbClient := global["dbClient"].(map[string]interface{})
+	postgresql := dbClient["postgresql"].(map[string]interface{})
+	pool := postgresql["pool"].(map[string]interface{})
+	if got := pool["maxConnections"]; got != int64(12) {
+		t.Errorf("dbClient.postgresql.pool.maxConnections = %v, want 12", got)
+	}
+}
+
 func TestSpecToHelmValues_ResourceRequirements(t *testing.T) {
 	gw := minimalGateway()
 	gw.Spec.APIServer.Resources = &corev1.ResourceRequirements{
@@ -1425,6 +1446,74 @@ func TestSpecToHelmValues_InputHeaders(t *testing.T) {
 	ih := config["inputHeaders"].(map[string]interface{})
 	if got := ih["tenant"]; got != "X-MaaS-Username" {
 		t.Errorf("inputHeaders.tenant = %v, want X-MaaS-Username", got)
+	}
+}
+
+func TestSpecToHelmValues_AllowAnonymousTenant(t *testing.T) {
+	gw := minimalGateway()
+	gw.Spec.APIServer.Config = &batchv1alpha1.APIServerConfigSpec{
+		AllowAnonymousTenant: true,
+	}
+
+	vals := specToBatchHelmValues(gw, testSecretName(gw), testImages(), tlspkg.ProfileValues{})
+
+	apiserver := vals["apiserver"].(map[string]interface{})
+	config := apiserver["config"].(map[string]interface{})
+	if got := config["allowAnonymousTenant"]; got != true {
+		t.Errorf("allowAnonymousTenant = %v, want true", got)
+	}
+}
+
+func TestSpecToHelmValues_APIServerNetworkPolicy(t *testing.T) {
+	gw := minimalGateway()
+	gw.Spec.APIServer.NetworkPolicy = &batchv1alpha1.APIServerNetworkPolicySpec{
+		Enabled: true,
+		API: &batchv1alpha1.NetworkPolicyPeersSpec{
+			From: []networkingv1.NetworkPolicyPeer{{
+				NamespaceSelector: &metav1.LabelSelector{
+					MatchLabels: map[string]string{"kubernetes.io/metadata.name": "gateway-system"},
+				},
+			}},
+		},
+		Observability: &batchv1alpha1.NetworkPolicyPeersSpec{
+			From: []networkingv1.NetworkPolicyPeer{{
+				PodSelector: &metav1.LabelSelector{
+					MatchLabels: map[string]string{"app.kubernetes.io/name": "prometheus"},
+				},
+			}},
+		},
+	}
+
+	vals := specToBatchHelmValues(gw, testSecretName(gw), testImages(), tlspkg.ProfileValues{})
+
+	apiserver := vals["apiserver"].(map[string]interface{})
+	networkPolicy := apiserver["networkPolicy"].(map[string]interface{})
+	if got := networkPolicy["enabled"]; got != true {
+		t.Errorf("networkPolicy.enabled = %v, want true", got)
+	}
+	api := networkPolicy["api"].(map[string]interface{})
+	apiFrom := api["from"].([]interface{})
+	apiPeer := apiFrom[0].(map[string]interface{})
+	apiNamespace := apiPeer["namespaceSelector"].(map[string]interface{})
+	apiLabels := apiNamespace["matchLabels"].(map[string]interface{})
+	if got := apiLabels["kubernetes.io/metadata.name"]; got != "gateway-system" {
+		t.Errorf("networkPolicy.api.from namespace = %v, want gateway-system", got)
+	}
+	observability := networkPolicy["observability"].(map[string]interface{})
+	observabilityFrom := observability["from"].([]interface{})
+	observabilityPeer := observabilityFrom[0].(map[string]interface{})
+	observabilityPod := observabilityPeer["podSelector"].(map[string]interface{})
+	observabilityLabels := observabilityPod["matchLabels"].(map[string]interface{})
+	if got := observabilityLabels["app.kubernetes.io/name"]; got != "prometheus" {
+		t.Errorf("networkPolicy.observability.from pod = %v, want prometheus", got)
+	}
+}
+
+func TestSpecToHelmValues_APIServerNetworkPolicyUsesChartDefaultWhenUnset(t *testing.T) {
+	vals := specToBatchHelmValues(minimalGateway(), "test-secrets", testImages(), tlspkg.ProfileValues{})
+	apiserver := vals["apiserver"].(map[string]interface{})
+	if _, ok := apiserver["networkPolicy"]; ok {
+		t.Fatal("networkPolicy should be omitted when unset so the chart default remains disabled")
 	}
 }
 

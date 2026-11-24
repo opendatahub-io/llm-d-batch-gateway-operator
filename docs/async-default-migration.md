@@ -296,6 +296,10 @@ separate from the llm-d-async dispatcher's own pool
 PostgreSQL's `max_connections`. Explicit values must be positive; omit the field
 to use the default of 8.
 
+This async SQL setting is separate from
+`spec.dbClient.postgresql.pool.maxConnections`, which caps each shared core
+PostgreSQL pool used by the API server, processor, and GC.
+
 The Batch Gateway and llm-d-async dispatcher must use the same transport and
 matching queue names. Do not configure both `redis` and `sql`.
 

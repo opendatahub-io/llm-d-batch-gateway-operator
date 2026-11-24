@@ -97,6 +97,7 @@ var managedGVKs = []schema.GroupVersionKind{
 	{Group: "rbac.authorization.k8s.io", Version: "v1", Kind: "Role"},
 	{Group: "rbac.authorization.k8s.io", Version: "v1", Kind: "RoleBinding"},
 	{Group: "cert-manager.io", Version: "v1", Kind: "Certificate"},
+	{Group: "networking.k8s.io", Version: "v1", Kind: "NetworkPolicy"},
 	{Group: "gateway.networking.k8s.io", Version: "v1", Kind: "HTTPRoute"},
 	{Group: "monitoring.coreos.com", Version: "v1", Kind: "ServiceMonitor"},
 	{Group: "monitoring.coreos.com", Version: "v1", Kind: "PodMonitor"},
@@ -119,6 +120,7 @@ type resourceKey struct {
 // +kubebuilder:rbac:groups="",resources=secrets,verbs=get;list;watch;create;patch
 // +kubebuilder:rbac:groups=gateway.networking.k8s.io,resources=referencegrants,verbs=get;list;watch
 // +kubebuilder:rbac:groups=cert-manager.io,resources=certificates,verbs=get;list;watch;create;update;patch;delete
+// +kubebuilder:rbac:groups=networking.k8s.io,resources=networkpolicies,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=gateway.networking.k8s.io,resources=httproutes,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=monitoring.coreos.com,resources=servicemonitors;podmonitors;prometheusrules,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups="",resources=events,verbs=create;patch

@@ -14,6 +14,7 @@ import (
 
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
+	networkingv1 "k8s.io/api/networking/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/meta"
 	"k8s.io/apimachinery/pkg/api/resource"
@@ -1059,6 +1060,128 @@ func TestLLMBatchGatewayTenantMetadataKeyValidation(t *testing.T) {
 	gw.Spec.Processor.Config.TenantMetadataKey = "userid"
 	if err := k8sClient.Update(ctx, gw); err != nil {
 		t.Fatalf("Update() with tenantMetadataKey userid: %v", err)
+	}
+}
+
+func TestLLMBatchGatewayPostgreSQLPoolMaxConnectionsValidation(t *testing.T) {
+	ctx := context.Background()
+	gateway := newTestGateway("test-postgresql-pool-max-connections")
+	negative := int32(-1)
+	gateway.Spec.DBClient = &batchv1alpha1.DBClientSpec{
+		PostgreSQL: &batchv1alpha1.PostgreSQLDBClientSpec{
+			Pool: &batchv1alpha1.PostgreSQLPoolSpec{MaxConnections: &negative},
+		},
+	}
+
+	if err := k8sClient.Create(ctx, gateway); !apierrors.IsInvalid(err) {
+		t.Fatalf("Create() with negative maxConnections error = %v, want Invalid", err)
+	}
+
+	zero := int32(0)
+	gateway.Spec.DBClient.PostgreSQL.Pool.MaxConnections = &zero
+	if err := k8sClient.Create(ctx, gateway); err != nil {
+		t.Fatalf("Create() with zero maxConnections: %v", err)
+	}
+	t.Cleanup(func() { _ = k8sClient.Delete(ctx, gateway) })
+}
+
+func TestLLMBatchGatewayNetworkPolicyRequiresAPIPeers(t *testing.T) {
+	ctx := context.Background()
+	gateway := newTestGateway("test-network-policy-api-peers")
+	gateway.Spec.APIServer.NetworkPolicy = &batchv1alpha1.APIServerNetworkPolicySpec{
+		Enabled: true,
+	}
+
+	if err := k8sClient.Create(ctx, gateway); !apierrors.IsInvalid(err) {
+		t.Fatalf("Create() without API peers error = %v, want Invalid", err)
+	}
+
+	gateway.Spec.APIServer.NetworkPolicy.API = &batchv1alpha1.NetworkPolicyPeersSpec{
+		From: []networkingv1.NetworkPolicyPeer{{
+			NamespaceSelector: &metav1.LabelSelector{
+				MatchLabels: map[string]string{"kubernetes.io/metadata.name": "gateway-system"},
+			},
+		}},
+	}
+	if err := k8sClient.Create(ctx, gateway); err != nil {
+		t.Fatalf("Create() with API peer: %v", err)
+	}
+	t.Cleanup(func() { _ = k8sClient.Delete(ctx, gateway) })
+}
+
+func TestLLMBatchGatewayNetworkPolicyValidatesPeerShapes(t *testing.T) {
+	ctx := context.Background()
+	apiPeer := networkingv1.NetworkPolicyPeer{
+		NamespaceSelector: &metav1.LabelSelector{
+			MatchLabels: map[string]string{"kubernetes.io/metadata.name": "gateway-system"},
+		},
+	}
+
+	tests := []struct {
+		name          string
+		apiPeers      []networkingv1.NetworkPolicyPeer
+		observability *batchv1alpha1.NetworkPolicyPeersSpec
+		wantInvalid   bool
+	}{
+		{
+			name:        "empty-api-peer",
+			apiPeers:    []networkingv1.NetworkPolicyPeer{{}},
+			wantInvalid: true,
+		},
+		{
+			name: "ipblock-with-selector",
+			apiPeers: []networkingv1.NetworkPolicyPeer{{
+				IPBlock:     &networkingv1.IPBlock{CIDR: "10.0.0.0/24"},
+				PodSelector: &metav1.LabelSelector{},
+			}},
+			wantInvalid: true,
+		},
+		{
+			name:     "empty-observability-peer",
+			apiPeers: []networkingv1.NetworkPolicyPeer{apiPeer},
+			observability: &batchv1alpha1.NetworkPolicyPeersSpec{
+				From: []networkingv1.NetworkPolicyPeer{{}},
+			},
+			wantInvalid: true,
+		},
+		{
+			name: "pod-and-namespace-selectors",
+			apiPeers: []networkingv1.NetworkPolicyPeer{{
+				NamespaceSelector: apiPeer.NamespaceSelector,
+				PodSelector:       &metav1.LabelSelector{},
+			}},
+		},
+		{
+			name: "ipblock-alone",
+			apiPeers: []networkingv1.NetworkPolicyPeer{{
+				IPBlock: &networkingv1.IPBlock{CIDR: "10.0.0.0/24"},
+			}},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			gateway := newTestGateway("test-network-policy-peer-" + tt.name)
+			gateway.Spec.APIServer.NetworkPolicy = &batchv1alpha1.APIServerNetworkPolicySpec{
+				Enabled: true,
+				API: &batchv1alpha1.NetworkPolicyPeersSpec{
+					From: tt.apiPeers,
+				},
+				Observability: tt.observability,
+			}
+
+			err := k8sClient.Create(ctx, gateway)
+			if tt.wantInvalid {
+				if !apierrors.IsInvalid(err) {
+					t.Fatalf("Create() error = %v, want Invalid", err)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("Create() with valid peer combination: %v", err)
+			}
+			t.Cleanup(func() { _ = k8sClient.Delete(ctx, gateway) })
+		})
 	}
 }
 

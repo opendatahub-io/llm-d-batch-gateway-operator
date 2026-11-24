@@ -1,7 +1,6 @@
 name: Integration Tests
 
 on:
-  workflow_dispatch:
   push:
     branches:
       - main
@@ -79,6 +78,39 @@ jobs:
 
       - name: Run operator e2e tests
         run: make test-e2e-operator-no-deploy
+
+      - name: Verify API server NetworkPolicy reconciliation
+        if: ${{ matrix.dev_profile == 'async' }}
+        shell: bash
+        run: |
+          apiserver_config=$(kubectl get configmap batch-gateway-dev-apiserver-config \
+            --namespace default \
+            --output jsonpath='{.data.config\.yaml}')
+          grep -Fq 'allow_anonymous_tenant: true' <<< "$apiserver_config"
+          grep -Fq 'proxy_token: "X-Gateway-Token"' <<< "$apiserver_config"
+
+          kubectl patch llmbatchgateway batch-gateway-dev \
+            --namespace default \
+            --type merge \
+            --patch '{"spec":{"apiServer":{"networkPolicy":{"enabled":true,"api":{"from":[{"namespaceSelector":{}}]}}}}}'
+
+          for attempt in $(seq 1 60); do
+            if kubectl get networkpolicy \
+              --namespace default \
+              --selector app.kubernetes.io/instance=batch-gateway-dev \
+              --output name | grep -q .; then
+              kubectl get networkpolicy \
+                --namespace default \
+                --selector app.kubernetes.io/instance=batch-gateway-dev \
+                --output yaml
+              exit 0
+            fi
+            sleep 2
+          done
+
+          kubectl get llmbatchgateway batch-gateway-dev --namespace default --output yaml
+          echo "The pinned chart did not create an API server NetworkPolicy" >&2
+          exit 1
 
       - name: Cleanup
         if: always()

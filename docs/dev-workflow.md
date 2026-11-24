@@ -31,6 +31,11 @@ git add Makefile
 git commit -m "chore: bump batch-gateway to <short-sha>"
 ```
 
+The **Integration Tests** workflow automatically uses the `BATCH_GATEWAY_REF`
+from the Makefile. Its async profile checks the proxy-token header and verifies
+that enabling `spec.apiServer.networkPolicy` creates a NetworkPolicy. The chart
+refresh workflow updates prefetched charts after the Makefile pin changes.
+
 After merging to midstream [opendatahub-io/llm-d-batch-gateway-operator](https://github.com/opendatahub-io/llm-d-batch-gateway-operator), the change will be automatically synced to downstream [red-hat-data-services/llm-d-batch-gateway-operator](https://github.com/red-hat-data-services/llm-d-batch-gateway-operator). Wait for the sync to complete before proceeding. Check status via [upstream-auto-merge](https://github.com/red-hat-data-services/rhods-devops-infra/actions/workflows/upstream-auto-merge.yaml).
 ```bash
 git ls-remote https://github.com/red-hat-data-services/llm-d-batch-gateway-operator.git refs/heads/main
