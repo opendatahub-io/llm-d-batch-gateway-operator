@@ -95,8 +95,9 @@ cd "${OPERATOR_DIR}/${BATCH_GATEWAY_DIR}/test/e2e"
 TEST_RUN="${TEST_RUN:-TestDispatcher/BatchThroughDispatcher}"
 
 step "Setting up port-forwards for async dispatcher tests..."
-start_port_forward "svc/redis-master" 6399 6379
-log "Port-forwards ready (redis:6399)"
+VALKEY_RELEASE="${VALKEY_RELEASE:-${REDIS_RELEASE:-redis}}"
+start_port_forward "svc/${VALKEY_RELEASE}" 6399 6379
+log "Port-forwards ready (Valkey:6399)"
 
 step "Recording async metrics before tests..."
 before_success=$(get_async_metric "llm_d_async_async_successful_requests_total")

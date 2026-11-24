@@ -24,9 +24,9 @@ opendatahub-operator (platform orchestrator)
 
 - OpenShift cluster with ODH operator installed
 - `oc` / `kubectl` CLI connected to the cluster
-- `helm` (for installing PostgreSQL and optional Redis test dependencies)
+- `helm` (for installing PostgreSQL and optional Valkey test dependencies)
 - `kubectl` (for installing the SeaweedFS test dependency)
-- External dependencies for LLMBatchGateway: PostgreSQL and S3-compatible storage. Async dispatch needs either Redis/Valkey for the default sorted-set transport or PostgreSQL for the experimental SQL transport.
+- External dependencies for LLMBatchGateway: PostgreSQL and S3-compatible storage. Async dispatch needs a Redis-protocol server such as Valkey for the default sorted-set transport, or PostgreSQL for the experimental SQL transport.
 
 ## Installation
 
@@ -103,15 +103,19 @@ status:
 ### Step 2: Set up external dependencies
 
 LLMBatchGateway requires PostgreSQL and S3-compatible storage. Async dispatch
-uses either Redis/Valkey sorted-set or PostgreSQL SQL queues. Use the provided
-script:
+uses the Redis sorted-set transport with Valkey, or PostgreSQL SQL queues. Use
+the provided script:
 
 ```bash
 export NAMESPACE=batch-api
 export SEAWEEDFS_ACCESS_KEY="batch-gateway-$(openssl rand -hex 16)"
 export SEAWEEDFS_SECRET_KEY="$(openssl rand -hex 32)"
-INSTALL_REDIS=true bash hack/setup-prereqs.sh
+INSTALL_VALKEY=true bash hack/setup-prereqs.sh
 ```
+
+The helper installs Valkey from the official chart at version `1.0.0`, which
+pins the Valkey image to `9.1.3`. The Secret key remains `redis-url` because
+the async transport uses the Redis protocol.
 
 Use unique values for `SEAWEEDFS_ACCESS_KEY` and `SEAWEEDFS_SECRET_KEY`. The
 setup script requires both values and stores the secret key in
@@ -122,11 +126,12 @@ and do not use the local SeaweedFS setup script.
 This creates the `$NAMESPACE` namespace and installs:
 - PostgreSQL (`postgresql.$NAMESPACE.svc.cluster.local:5432`)
 - SeaweedFS S3 (`seaweedfs.$NAMESPACE.svc.cluster.local:8333`, bucket: `batch-gateway`)
-- Redis (`redis-master.$NAMESPACE.svc.cluster.local:6379`; its URL is added to `batch-gateway-secrets`)
+- Valkey (`redis.$NAMESPACE.svc.cluster.local:6379`; its Redis-protocol URL is added to the `redis-url` key in `batch-gateway-secrets`)
 - `batch-gateway-secrets` Secret
 
-For production, replace PostgreSQL and S3 with your own endpoints, plus Redis
-when you use the Redis async transport. For the SQL async transport, ensure the
+For production, replace PostgreSQL and S3 with your own endpoints, plus a
+Redis-compatible server such as Redis or Valkey when you use the Redis async
+transport. For the SQL async transport, ensure the
 referenced Secret contains `postgresql-url` and configure
 `spec.processor.asyncConfig.sql`.
 

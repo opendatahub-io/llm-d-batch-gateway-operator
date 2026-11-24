@@ -3,14 +3,15 @@ set -euo pipefail
 
 # ── Setup prerequisites for LLMBatchGateway CR ──────────────────────────────
 #
-# Installs PostgreSQL, Redis, SeaweedFS (with bucket), and creates the
+# Installs PostgreSQL, Valkey, SeaweedFS (with bucket), and creates the
 # batch-gateway-secrets Secret in the target namespace.
 # Run this before creating a LLMBatchGateway CR.
 #
 # Usage:
 #   SEAWEEDFS_ACCESS_KEY=... SEAWEEDFS_SECRET_KEY=... ./hack/setup-prereqs.sh
 #   NAMESPACE=my-ns SEAWEEDFS_ACCESS_KEY=... SEAWEEDFS_SECRET_KEY=... ./hack/setup-prereqs.sh
-#   INSTALL_REDIS=true ./hack/setup-prereqs.sh  # also install Redis for async dispatch
+#   INSTALL_VALKEY=true ./hack/setup-prereqs.sh  # also install Valkey for async dispatch
+#   INSTALL_REDIS=true remains a supported alias for INSTALL_VALKEY.
 
 # ── Configuration ────────────────────────────────────────────────────────────
 
@@ -19,8 +20,12 @@ NAMESPACE="${NAMESPACE:-batch-api}"
 POSTGRESQL_RELEASE="${POSTGRESQL_RELEASE:-postgresql}"
 POSTGRESQL_PASSWORD="${POSTGRESQL_PASSWORD:-postgres}"
 
-REDIS_RELEASE="${REDIS_RELEASE:-redis}"
-INSTALL_REDIS="${INSTALL_REDIS:-false}"
+# The queue uses the Redis protocol and Secret key; Valkey is the local server.
+# Keep the REDIS_* names as aliases for existing development commands.
+VALKEY_RELEASE="${VALKEY_RELEASE:-${REDIS_RELEASE:-redis}}"
+INSTALL_VALKEY="${INSTALL_VALKEY:-${INSTALL_REDIS:-false}}"
+VALKEY_CHART_REPO="${VALKEY_CHART_REPO:-https://valkey.io/valkey-helm/}"
+VALKEY_CHART_VERSION="${VALKEY_CHART_VERSION:-1.0.0}"
 
 SEAWEEDFS_RELEASE="${SEAWEEDFS_RELEASE:-seaweedfs}"
 SEAWEEDFS_ACCESS_KEY="${SEAWEEDFS_ACCESS_KEY:-}"
@@ -90,19 +95,18 @@ install_postgresql() {
     log "PostgreSQL installed (database: batch)."
 }
 
-install_redis() {
-    step "Installing Redis..."
-    if helm status "${REDIS_RELEASE}" -n "${NAMESPACE}" &>/dev/null; then
-        log "Redis already installed. Skipping."
-        return
-    fi
-    helm install "${REDIS_RELEASE}" oci://registry-1.docker.io/bitnamicharts/redis \
-        --namespace "${NAMESPACE}" --create-namespace \
-        --set architecture=standalone \
-        --set auth.enabled=false
+install_valkey() {
+	step "Installing Valkey from chart ${VALKEY_CHART_VERSION}..."
+	helm upgrade --install "${VALKEY_RELEASE}" valkey \
+		--repo "${VALKEY_CHART_REPO}" --version "${VALKEY_CHART_VERSION}" \
+		--namespace "${NAMESPACE}" --create-namespace \
+		--set "fullnameOverride=${VALKEY_RELEASE}" \
+		--set auth.enabled=false \
+		--set persistence.enabled=true --set persistence.size=1Gi \
+		--set-string "extraConfig=appendonly yes"
 
-    kubectl rollout status statefulset/"${REDIS_RELEASE}-master" -n "${NAMESPACE}" --timeout=180s
-    log "Redis installed (standalone, no auth)."
+	kubectl rollout status deployment/"${VALKEY_RELEASE}" -n "${NAMESPACE}" --timeout=180s
+	log "Valkey installed (Redis protocol, no auth)."
 }
 
 install_seaweedfs() {
@@ -232,8 +236,8 @@ create_secret() {
     local postgresql_url="postgresql://postgres:${POSTGRESQL_PASSWORD}@${POSTGRESQL_RELEASE}.${NAMESPACE}.svc.cluster.local:5432/batch?sslmode=disable"
     local redis_secret_entry=""
     local s3_secret_entry=""
-    if [ "${INSTALL_REDIS}" = true ]; then
-        local redis_url="redis://${REDIS_RELEASE}-master.${NAMESPACE}.svc.cluster.local:6379/0"
+    if [ "${INSTALL_VALKEY}" = true ]; then
+        local redis_url="redis://${VALKEY_RELEASE}.${NAMESPACE}.svc.cluster.local:6379/0"
         redis_secret_entry="  redis-url: \"${redis_url}\""
     fi
     if [ "${FILE_CLIENT_TYPE}" = "s3" ]; then
@@ -265,8 +269,8 @@ main() {
     kubectl create namespace "${NAMESPACE}" 2>/dev/null || true
 
     install_postgresql
-    if [ "${INSTALL_REDIS}" = true ]; then
-        install_redis
+    if [ "${INSTALL_VALKEY}" = true ]; then
+        install_valkey
     fi
 
     if [ "${FILE_CLIENT_TYPE}" = "fs" ]; then
@@ -281,8 +285,8 @@ main() {
     log "Prerequisites ready:"
     echo "  Namespace:    ${NAMESPACE}"
     echo "  PostgreSQL:   ${POSTGRESQL_RELEASE}.${NAMESPACE}.svc.cluster.local:5432/batch"
-    if [ "${INSTALL_REDIS}" = true ]; then
-        echo "  Redis:        ${REDIS_RELEASE}-master.${NAMESPACE}.svc.cluster.local:6379"
+    if [ "${INSTALL_VALKEY}" = true ]; then
+        echo "  Valkey:       ${VALKEY_RELEASE}.${NAMESPACE}.svc.cluster.local:6379"
     fi
     if [ "${FILE_CLIENT_TYPE}" = "fs" ]; then
         echo "  File (PVC):   ${FILES_PVC_NAME}"
