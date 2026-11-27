@@ -188,15 +188,54 @@ after an upgrade. With this setting, the proxy token is not checked; requests
 without a tenant header use the `default` tenant, while a supplied tenant
 header is still used.
 
+At startup, the API server logs when anonymous tenants are allowed:
+
+```text
+anonymous tenant allowed: the proxy token is not checked and requests without the tenant header are served as the default tenant
+```
+
 > **Warning:** when these checks are off, the API server trusts the tenant
 > header from any client that can reach its Service. Keep it reachable only
 > through the authenticated proxy, and have that proxy replace the tenant
 > header with the value from the authenticated identity.
 
-To enable both checks, first add a token under the `apiserver-proxy-token` key
-in the Secret named by `spec.secretRef`, then configure the auth proxy to send
-the same value in `X-Gateway-Token` and set the tenant header from the
-authenticated identity. After both are ready, set:
+To enable both checks, prepare the Secret and auth proxy before changing the
+field:
+
+1. Add a token under the `apiserver-proxy-token` key in the Secret named by
+   `spec.secretRef`. For the default installation Secret:
+
+   ```bash
+   TOKEN=$(openssl rand -hex 32)
+   builtin printf '{"stringData":{"apiserver-proxy-token":"%s"}}' "$TOKEN" |
+     oc -n "$NAMESPACE" patch secret batch-gateway-secrets --type merge \
+       --patch-file /dev/stdin
+   ```
+
+   The token is sent through standard input, not exposed in the `oc` process arguments.
+
+2. Configure the auth proxy to send that token in `X-Gateway-Token` and set
+   the tenant header from the authenticated identity, replacing any value the
+   client sent. With Kuadrant, add both headers to the batch route's AuthPolicy:
+
+   ```yaml
+   spec:
+     rules:
+       response:
+         success:
+           headers:
+             x-maas-username:
+               plain:
+                 selector: auth.identity.user.username # depends on the authentication method
+             x-gateway-token:
+               plain:
+                 value: "<TOKEN>" # same value as apiserver-proxy-token
+   ```
+
+   Anyone who can read AuthPolicies in the namespace can read a token in
+   `plain.value`; restrict that access like the Secret.
+
+After both are ready, set:
 
 ```yaml
 spec:
@@ -208,6 +247,16 @@ spec:
 The API server reads the token at startup. Restart it after rotating the token
 in the Secret and auth proxy. The local development samples enable anonymous
 tenants because they do not set up an auth proxy.
+
+Check that a request through the auth proxy succeeds and an unauthenticated
+request sent directly to the API server Service returns `401`.
+
+If you roll back to an operator release without this field, the older operator
+does not render it. An API server from before these checks keeps serving
+without them. A newer API server may enforce the checks when the setting is
+missing and will not start without the `apiserver-proxy-token` Secret key.
+See the Batch Gateway [security guide](https://github.com/llm-d/llm-d-batch-gateway/blob/main/docs/guides/security.md)
+for how the API server handles the token and tenant header.
 
 This option requires a Batch Gateway chart revision with API-server
 NetworkPolicy support. The operator creates no API-server `NetworkPolicy` unless
