@@ -27,6 +27,12 @@ spec:
       inferenceGateway:
         url: http://inference-gateway.default.svc:8000
       prometheusURL: http://prometheus.default.svc.cluster.local:9090
+      # To query OpenShift cluster monitoring instead, use the service account
+      # mount and grant the async-processor service account cluster-monitoring-view:
+      # prometheusURL: https://thanos-querier.openshift-monitoring.svc:9091
+      # prometheusAuth:
+      #   bearerTokenFile: /var/run/secrets/kubernetes.io/serviceaccount/token
+      #   caCertFile: /var/run/secrets/kubernetes.io/serviceaccount/service-ca.crt
       sql:
         # Per-replica SQL pool cap for the Batch Gateway processor.
         # Omit to use the chart default (8). An explicit 0 is passed through
