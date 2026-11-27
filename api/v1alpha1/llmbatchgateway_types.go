@@ -2,6 +2,7 @@ package v1alpha1
 
 import (
 	corev1 "k8s.io/api/core/v1"
+	networkingv1 "k8s.io/api/networking/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
@@ -66,6 +67,9 @@ type LLMBatchGatewaySpec struct {
 	// +kubebuilder:default=postgresql
 	DBBackend string `json:"dbBackend,omitempty"`
 
+	// DBClient configures the shared Batch Gateway database client.
+	DBClient *DBClientSpec `json:"dbClient,omitempty"`
+
 	// ExtraEndpoints adds deployment-specific inference paths to the standard
 	// OpenAI Batch API allowlist for both the API server and processor.
 	// The batch-gateway processes validate each path at startup.
@@ -112,6 +116,29 @@ type LLMBatchGatewaySpec struct {
 	// from private registries. Applied globally to all component pods (apiServer, processor, gc).
 	// +kubebuilder:validation:MaxItems=20
 	ImagePullSecrets []corev1.LocalObjectReference `json:"imagePullSecrets,omitempty"`
+}
+
+// DBClientSpec configures shared database client settings for the API server,
+// processor, and garbage collector.
+type DBClientSpec struct {
+	// PostgreSQL configures the PostgreSQL database client.
+	PostgreSQL *PostgreSQLDBClientSpec `json:"postgresql,omitempty"`
+}
+
+// PostgreSQLDBClientSpec configures the shared PostgreSQL client.
+type PostgreSQLDBClientSpec struct {
+	// Pool configures the PostgreSQL connection pools.
+	Pool *PostgreSQLPoolSpec `json:"pool,omitempty"`
+}
+
+// PostgreSQLPoolSpec configures the shared PostgreSQL connection pools.
+type PostgreSQLPoolSpec struct {
+	// MaxConnections caps each Batch Gateway PostgreSQL pool. Zero retains
+	// pool_max_conns from the PostgreSQL URL when set; otherwise it uses the pgx
+	// default. Runtime pools have a minimum size of two. This is separate from
+	// the async processor SQL transport pool under spec.processor.asyncConfig.sql.
+	// +kubebuilder:validation:Minimum=0
+	MaxConnections *int32 `json:"maxConnections,omitempty"`
 }
 
 // --- File Storage ---
@@ -248,6 +275,10 @@ type APIServerSpec struct {
 	// Config holds fine-grained API server configuration.
 	Config *APIServerConfigSpec `json:"config,omitempty"`
 
+	// NetworkPolicy configures ingress access to the API server and its
+	// observability port. It is disabled by default.
+	NetworkPolicy *APIServerNetworkPolicySpec `json:"networkPolicy,omitempty"`
+
 	// ImagePullPolicy overrides the image pull policy for the API server container.
 	// Useful for development workflows where the image is loaded directly into the cluster node.
 	// +kubebuilder:validation:Enum=Always;Never;IfNotPresent
@@ -279,6 +310,16 @@ type APIServerConfigSpec struct {
 	// identification and other input metadata (e.g. {"tenant": "X-MaaS-Username"}).
 	InputHeaders map[string]string `json:"inputHeaders,omitempty"`
 
+	// AllowAnonymousTenant serves requests without the tenant header as the
+	// default tenant and turns off the API server's auth proxy token check.
+	// Unset means true, matching the API server's behavior before those checks
+	// existed, so existing deployments keep starting after an upgrade. Set it to
+	// false to require the Secret in spec.secretRef to contain an
+	// apiserver-proxy-token key and the auth proxy to send that token in
+	// X-Gateway-Token and set the tenant header from the authenticated identity.
+	// +optional
+	AllowAnonymousTenant *bool `json:"allowAnonymousTenant,omitempty"`
+
 	// BatchAPI configures the batch job submission endpoint behaviour.
 	BatchAPI *BatchAPIConfig `json:"batchAPI,omitempty"`
 
@@ -290,6 +331,28 @@ type APIServerConfigSpec struct {
 
 	// Logging configures log verbosity for the API server.
 	Logging *LoggingConfig `json:"logging,omitempty"`
+}
+
+// APIServerNetworkPolicySpec configures the API server NetworkPolicy.
+// +kubebuilder:validation:XValidation:rule="!self.enabled || (has(self.api) && has(self.api.from) && size(self.api.from) > 0)",message="networkPolicy.api.from must not be empty when networkPolicy is enabled"
+type APIServerNetworkPolicySpec struct {
+	// Enabled creates an ingress-only NetworkPolicy for the API server pods.
+	// +kubebuilder:default=false
+	Enabled bool `json:"enabled,omitempty"`
+
+	// API lists the peers allowed to reach the API port.
+	API *NetworkPolicyPeersSpec `json:"api,omitempty"`
+
+	// Observability lists the peers allowed to reach the observability port.
+	Observability *NetworkPolicyPeersSpec `json:"observability,omitempty"`
+}
+
+// NetworkPolicyPeersSpec lists Kubernetes NetworkPolicy peers allowed to reach
+// one API server port.
+// +kubebuilder:validation:XValidation:rule="!has(self.from) || self.from.all(peer, has(peer.ipBlock) != (has(peer.podSelector) || has(peer.namespaceSelector)))",message="each peer must set ipBlock alone or at least one of podSelector and namespaceSelector"
+type NetworkPolicyPeersSpec struct {
+	// From contains namespaceSelector, podSelector, or ipBlock peers.
+	From []networkingv1.NetworkPolicyPeer `json:"from,omitempty"`
 }
 
 // BatchAPIConfig configures the batch job submission API behaviour.
@@ -718,7 +781,8 @@ type LLMBatchGatewayStatus struct {
 	ObservedGeneration int64 `json:"observedGeneration,omitempty"`
 
 	// Conditions represent the latest available observations of the LLMBatchGateway's state.
-	// Known condition types: Ready, APIServerAvailable, ProcessorAvailable, GCAvailable.
+	// Known condition types: Ready, APIServerAvailable, ProcessorAvailable,
+	// GCAvailable, AsyncProcessorAvailable, and APIServerNetworkPolicyManaged.
 	Conditions []metav1.Condition `json:"conditions,omitempty"`
 
 	// ComponentStatus reports the replica counts for each managed component.

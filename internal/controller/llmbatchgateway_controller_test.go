@@ -14,6 +14,7 @@ import (
 
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
+	networkingv1 "k8s.io/api/networking/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/meta"
 	"k8s.io/apimachinery/pkg/api/resource"
@@ -1062,6 +1063,128 @@ func TestLLMBatchGatewayTenantMetadataKeyValidation(t *testing.T) {
 	}
 }
 
+func TestLLMBatchGatewayPostgreSQLPoolMaxConnectionsValidation(t *testing.T) {
+	ctx := context.Background()
+	gateway := newTestGateway("test-postgresql-pool-max-connections")
+	negative := int32(-1)
+	gateway.Spec.DBClient = &batchv1alpha1.DBClientSpec{
+		PostgreSQL: &batchv1alpha1.PostgreSQLDBClientSpec{
+			Pool: &batchv1alpha1.PostgreSQLPoolSpec{MaxConnections: &negative},
+		},
+	}
+
+	if err := k8sClient.Create(ctx, gateway); !apierrors.IsInvalid(err) {
+		t.Fatalf("Create() with negative maxConnections error = %v, want Invalid", err)
+	}
+
+	zero := int32(0)
+	gateway.Spec.DBClient.PostgreSQL.Pool.MaxConnections = &zero
+	if err := k8sClient.Create(ctx, gateway); err != nil {
+		t.Fatalf("Create() with zero maxConnections: %v", err)
+	}
+	t.Cleanup(func() { _ = k8sClient.Delete(ctx, gateway) })
+}
+
+func TestLLMBatchGatewayNetworkPolicyRequiresAPIPeers(t *testing.T) {
+	ctx := context.Background()
+	gateway := newTestGateway("test-network-policy-api-peers")
+	gateway.Spec.APIServer.NetworkPolicy = &batchv1alpha1.APIServerNetworkPolicySpec{
+		Enabled: true,
+	}
+
+	if err := k8sClient.Create(ctx, gateway); !apierrors.IsInvalid(err) {
+		t.Fatalf("Create() without API peers error = %v, want Invalid", err)
+	}
+
+	gateway.Spec.APIServer.NetworkPolicy.API = &batchv1alpha1.NetworkPolicyPeersSpec{
+		From: []networkingv1.NetworkPolicyPeer{{
+			NamespaceSelector: &metav1.LabelSelector{
+				MatchLabels: map[string]string{"kubernetes.io/metadata.name": "gateway-system"},
+			},
+		}},
+	}
+	if err := k8sClient.Create(ctx, gateway); err != nil {
+		t.Fatalf("Create() with API peer: %v", err)
+	}
+	t.Cleanup(func() { _ = k8sClient.Delete(ctx, gateway) })
+}
+
+func TestLLMBatchGatewayNetworkPolicyValidatesPeerShapes(t *testing.T) {
+	ctx := context.Background()
+	apiPeer := networkingv1.NetworkPolicyPeer{
+		NamespaceSelector: &metav1.LabelSelector{
+			MatchLabels: map[string]string{"kubernetes.io/metadata.name": "gateway-system"},
+		},
+	}
+
+	tests := []struct {
+		name          string
+		apiPeers      []networkingv1.NetworkPolicyPeer
+		observability *batchv1alpha1.NetworkPolicyPeersSpec
+		wantInvalid   bool
+	}{
+		{
+			name:        "empty-api-peer",
+			apiPeers:    []networkingv1.NetworkPolicyPeer{{}},
+			wantInvalid: true,
+		},
+		{
+			name: "ipblock-with-selector",
+			apiPeers: []networkingv1.NetworkPolicyPeer{{
+				IPBlock:     &networkingv1.IPBlock{CIDR: "10.0.0.0/24"},
+				PodSelector: &metav1.LabelSelector{},
+			}},
+			wantInvalid: true,
+		},
+		{
+			name:     "empty-observability-peer",
+			apiPeers: []networkingv1.NetworkPolicyPeer{apiPeer},
+			observability: &batchv1alpha1.NetworkPolicyPeersSpec{
+				From: []networkingv1.NetworkPolicyPeer{{}},
+			},
+			wantInvalid: true,
+		},
+		{
+			name: "pod-and-namespace-selectors",
+			apiPeers: []networkingv1.NetworkPolicyPeer{{
+				NamespaceSelector: apiPeer.NamespaceSelector,
+				PodSelector:       &metav1.LabelSelector{},
+			}},
+		},
+		{
+			name: "ipblock-alone",
+			apiPeers: []networkingv1.NetworkPolicyPeer{{
+				IPBlock: &networkingv1.IPBlock{CIDR: "10.0.0.0/24"},
+			}},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			gateway := newTestGateway("test-network-policy-peer-" + tt.name)
+			gateway.Spec.APIServer.NetworkPolicy = &batchv1alpha1.APIServerNetworkPolicySpec{
+				Enabled: true,
+				API: &batchv1alpha1.NetworkPolicyPeersSpec{
+					From: tt.apiPeers,
+				},
+				Observability: tt.observability,
+			}
+
+			err := k8sClient.Create(ctx, gateway)
+			if tt.wantInvalid {
+				if !apierrors.IsInvalid(err) {
+					t.Fatalf("Create() error = %v, want Invalid", err)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("Create() with valid peer combination: %v", err)
+			}
+			t.Cleanup(func() { _ = k8sClient.Delete(ctx, gateway) })
+		})
+	}
+}
+
 func TestReconcile(t *testing.T) {
 	ctx := context.Background()
 
@@ -1092,7 +1215,7 @@ func TestReconcile(t *testing.T) {
 			t.Fatalf("getting stored CR: %v", err)
 		}
 
-		values := specToBatchHelmValues(&stored, testSecretName(&stored), testImages(), tlspkg.ProfileValues{})
+		values := mustSpecToBatchHelmValues(t, &stored, testSecretName(&stored), testImages())
 		processor, ok := values["processor"].(map[string]any)
 		if !ok {
 			t.Fatal("rendered processor config missing")
@@ -1301,7 +1424,14 @@ func TestReconcile(t *testing.T) {
 			conditionTypes[c.Type] = true
 		}
 
-		for _, ct := range []string{conditionReady, conditionAPIServerAvailable, conditionProcessorAvailable, conditionGCAvailable, conditionAsyncProcessorAvailable} {
+		for _, ct := range []string{
+			conditionReady,
+			conditionAPIServerAvailable,
+			conditionProcessorAvailable,
+			conditionGCAvailable,
+			conditionAsyncProcessorAvailable,
+			conditionAPIServerNetworkPolicyManaged,
+		} {
 			if !conditionTypes[ct] {
 				t.Errorf("missing condition %q", ct)
 			}
@@ -1427,6 +1557,163 @@ func TestReconcile(t *testing.T) {
 		}
 		if cmCountAfter != cmCountBefore-2 {
 			t.Errorf("configmap count = %d, want %d (batch and async dashboards removed)", cmCountAfter, cmCountBefore-2)
+		}
+	})
+
+	t.Run("deletes legacy NetworkPolicy when tracking condition is missing", func(t *testing.T) {
+		gw := newTestGateway("test-legacy-network-policy")
+		if err := k8sClient.Create(ctx, gw); err != nil {
+			t.Fatalf("creating CR: %v", err)
+		}
+		t.Cleanup(func() { _ = k8sClient.Delete(ctx, gw) })
+
+		nn := types.NamespacedName{Name: gw.Name, Namespace: gw.Namespace}
+		if err := k8sClient.Get(ctx, nn, gw); err != nil {
+			t.Fatalf("getting CR: %v", err)
+		}
+		if meta.FindStatusCondition(gw.Status.Conditions, conditionAPIServerNetworkPolicyManaged) != nil {
+			t.Fatal("test CR unexpectedly has the NetworkPolicy tracking condition")
+		}
+
+		owner := metav1.OwnerReference{
+			APIVersion: batchv1alpha1.GroupVersion.String(),
+			Kind:       llmBatchGatewayKind,
+			Name:       gw.Name,
+			UID:        gw.UID,
+			Controller: ptr.To(true),
+		}
+		ownedPolicy := &networkingv1.NetworkPolicy{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:            "test-legacy-owned-policy",
+				Namespace:       gw.Namespace,
+				OwnerReferences: []metav1.OwnerReference{owner},
+			},
+			Spec: networkingv1.NetworkPolicySpec{PodSelector: metav1.LabelSelector{}},
+		}
+		unownedPolicy := &networkingv1.NetworkPolicy{
+			ObjectMeta: metav1.ObjectMeta{Name: "test-legacy-unowned-policy", Namespace: gw.Namespace},
+			Spec:       networkingv1.NetworkPolicySpec{PodSelector: metav1.LabelSelector{}},
+		}
+		if err := k8sClient.Create(ctx, ownedPolicy); err != nil {
+			t.Fatalf("creating owned NetworkPolicy: %v", err)
+		}
+		t.Cleanup(func() { _ = k8sClient.Delete(ctx, ownedPolicy) })
+		if err := k8sClient.Create(ctx, unownedPolicy); err != nil {
+			t.Fatalf("creating unowned NetworkPolicy: %v", err)
+		}
+		t.Cleanup(func() { _ = k8sClient.Delete(ctx, unownedPolicy) })
+
+		if err := reconciler.deleteOrphanedResources(ctx, gw, nil); err != nil {
+			t.Fatalf("deleteOrphanedResources() error: %v", err)
+		}
+
+		if err := k8sClient.Get(ctx, types.NamespacedName{Name: ownedPolicy.Name, Namespace: gw.Namespace}, &networkingv1.NetworkPolicy{}); !apierrors.IsNotFound(err) {
+			t.Errorf("owned NetworkPolicy Get() error = %v, want NotFound", err)
+		}
+		if err := k8sClient.Get(ctx, types.NamespacedName{Name: unownedPolicy.Name, Namespace: gw.Namespace}, &networkingv1.NetworkPolicy{}); err != nil {
+			t.Errorf("unowned NetworkPolicy should remain, Get() error = %v", err)
+		}
+	})
+
+	t.Run("retains cleanup state after enabled NetworkPolicy cleanup failure", func(t *testing.T) {
+		gw := newTestGateway("test-network-policy-cleanup-state")
+		if err := k8sClient.Create(ctx, gw); err != nil {
+			t.Fatalf("creating CR: %v", err)
+		}
+		t.Cleanup(func() { _ = k8sClient.Delete(ctx, gw) })
+
+		nn := types.NamespacedName{Name: gw.Name, Namespace: gw.Namespace}
+		if err := k8sClient.Get(ctx, nn, gw); err != nil {
+			t.Fatalf("getting CR: %v", err)
+		}
+		meta.SetStatusCondition(&gw.Status.Conditions, metav1.Condition{
+			Type:               conditionAPIServerNetworkPolicyManaged,
+			Status:             metav1.ConditionFalse,
+			Reason:             reasonNetworkPolicyDisabled,
+			Message:            "NetworkPolicy is disabled and was cleaned up",
+			ObservedGeneration: gw.Generation,
+		})
+		if err := k8sClient.Status().Update(ctx, gw); err != nil {
+			t.Fatalf("setting disabled cleanup condition: %v", err)
+		}
+
+		gw.Spec.APIServer.NetworkPolicy = &batchv1alpha1.APIServerNetworkPolicySpec{
+			Enabled: true,
+			API: &batchv1alpha1.NetworkPolicyPeersSpec{
+				From: []networkingv1.NetworkPolicyPeer{{
+					NamespaceSelector: &metav1.LabelSelector{MatchLabels: map[string]string{
+						"kubernetes.io/metadata.name": "gateway-system",
+					}},
+				}},
+			},
+		}
+		if err := k8sClient.Update(ctx, gw); err != nil {
+			t.Fatalf("enabling API server NetworkPolicy: %v", err)
+		}
+		if err := k8sClient.Get(ctx, nn, gw); err != nil {
+			t.Fatalf("getting enabled CR: %v", err)
+		}
+		if err := reconciler.markNetworkPolicyCleanupPending(ctx, gw); err != nil {
+			t.Fatalf("marking NetworkPolicy cleanup pending: %v", err)
+		}
+
+		owner := metav1.OwnerReference{
+			APIVersion: batchv1alpha1.GroupVersion.String(),
+			Kind:       llmBatchGatewayKind,
+			Name:       gw.Name,
+			UID:        gw.UID,
+			Controller: ptr.To(true),
+		}
+		ownedPolicy := &networkingv1.NetworkPolicy{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:            "test-network-policy-after-failed-cleanup",
+				Namespace:       gw.Namespace,
+				OwnerReferences: []metav1.OwnerReference{owner},
+			},
+			Spec: networkingv1.NetworkPolicySpec{PodSelector: metav1.LabelSelector{}},
+		}
+		if err := k8sClient.Create(ctx, ownedPolicy); err != nil {
+			t.Fatalf("creating owned NetworkPolicy: %v", err)
+		}
+		t.Cleanup(func() { _ = k8sClient.Delete(ctx, ownedPolicy) })
+
+		if err := reconciler.recordFailure(ctx, gw, statusFailure{
+			reason:     reasonOrphanCleanupFailed,
+			message:    "injected orphan cleanup failure",
+			conditions: []string{conditionReady},
+		}); err != nil {
+			t.Fatalf("recording orphan cleanup failure: %v", err)
+		}
+		if err := k8sClient.Get(ctx, nn, gw); err != nil {
+			t.Fatalf("getting CR after cleanup failure: %v", err)
+		}
+		cond := meta.FindStatusCondition(gw.Status.Conditions, conditionAPIServerNetworkPolicyManaged)
+		if cond == nil || cond.Status != metav1.ConditionUnknown {
+			t.Fatalf("NetworkPolicy tracking condition = %v, want Unknown while cleanup is pending", cond)
+		}
+
+		gw.Spec.APIServer.NetworkPolicy.Enabled = false
+		if err := k8sClient.Update(ctx, gw); err != nil {
+			t.Fatalf("disabling API server NetworkPolicy: %v", err)
+		}
+		if err := k8sClient.Get(ctx, nn, gw); err != nil {
+			t.Fatalf("getting disabled CR: %v", err)
+		}
+		if err := reconciler.deleteOrphanedResources(ctx, gw, nil); err != nil {
+			t.Fatalf("deleting pending NetworkPolicy orphan: %v", err)
+		}
+		if err := k8sClient.Get(ctx, types.NamespacedName{Name: ownedPolicy.Name, Namespace: gw.Namespace}, &networkingv1.NetworkPolicy{}); !apierrors.IsNotFound(err) {
+			t.Fatalf("owned NetworkPolicy Get() error = %v, want NotFound", err)
+		}
+		if err := reconciler.updateStatus(ctx, gw); err != nil {
+			t.Fatalf("updating status after cleanup: %v", err)
+		}
+		if err := k8sClient.Get(ctx, nn, gw); err != nil {
+			t.Fatalf("getting CR after cleanup: %v", err)
+		}
+		cond = meta.FindStatusCondition(gw.Status.Conditions, conditionAPIServerNetworkPolicyManaged)
+		if cond == nil || cond.Status != metav1.ConditionFalse {
+			t.Fatalf("NetworkPolicy tracking condition = %v, want False after cleanup", cond)
 		}
 	})
 

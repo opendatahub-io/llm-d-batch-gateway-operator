@@ -12,6 +12,7 @@ import (
 	"helm.sh/helm/v3/pkg/chart/loader"
 	"helm.sh/helm/v3/pkg/chartutil"
 	"helm.sh/helm/v3/pkg/engine"
+	networkingv1 "k8s.io/api/networking/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/util/yaml"
 
@@ -130,6 +131,22 @@ func toStringInterfaceMap(m map[string]string) map[string]interface{} {
 		result[k] = v
 	}
 	return result
+}
+
+func networkPolicyPeersToHelmValues(peers []networkingv1.NetworkPolicyPeer) ([]interface{}, error) {
+	result := make([]interface{}, 0, len(peers))
+	for i, peer := range peers {
+		data, err := json.Marshal(peer)
+		if err != nil {
+			return nil, fmt.Errorf("marshalling NetworkPolicyPeer %d: %w", i, err)
+		}
+		var value map[string]interface{}
+		if err := json.Unmarshal(data, &value); err != nil {
+			return nil, fmt.Errorf("unmarshalling NetworkPolicyPeer %d: %w", i, err)
+		}
+		result = append(result, value)
+	}
+	return result, nil
 }
 
 func toJSONAwareMap(m map[string]string) map[string]any {

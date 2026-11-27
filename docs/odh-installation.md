@@ -24,9 +24,9 @@ opendatahub-operator (platform orchestrator)
 
 - OpenShift cluster with ODH operator installed
 - `oc` / `kubectl` CLI connected to the cluster
-- `helm` (for installing PostgreSQL and optional Redis test dependencies)
+- `helm` (for installing PostgreSQL and optional Valkey test dependencies)
 - `kubectl` (for installing the SeaweedFS test dependency)
-- External dependencies for LLMBatchGateway: PostgreSQL and S3-compatible storage. Async dispatch needs either Redis/Valkey for the default sorted-set transport or PostgreSQL for the experimental SQL transport.
+- External dependencies for LLMBatchGateway: PostgreSQL and S3-compatible storage. Async dispatch needs a Redis-protocol server such as Valkey for the default sorted-set transport, or PostgreSQL for the experimental SQL transport.
 
 ## Installation
 
@@ -103,15 +103,19 @@ status:
 ### Step 2: Set up external dependencies
 
 LLMBatchGateway requires PostgreSQL and S3-compatible storage. Async dispatch
-uses either Redis/Valkey sorted-set or PostgreSQL SQL queues. Use the provided
-script:
+uses the Redis sorted-set transport with Valkey, or PostgreSQL SQL queues. Use
+the provided script:
 
 ```bash
 export NAMESPACE=batch-api
 export SEAWEEDFS_ACCESS_KEY="batch-gateway-$(openssl rand -hex 16)"
 export SEAWEEDFS_SECRET_KEY="$(openssl rand -hex 32)"
-INSTALL_REDIS=true bash hack/setup-prereqs.sh
+INSTALL_VALKEY=true bash hack/setup-prereqs.sh
 ```
+
+The helper installs Valkey from the official chart at version `1.0.0`, which
+pins the Valkey image to `9.1.3`. The Secret key remains `redis-url` because
+the async transport uses the Redis protocol.
 
 Use unique values for `SEAWEEDFS_ACCESS_KEY` and `SEAWEEDFS_SECRET_KEY`. The
 setup script requires both values and stores the secret key in
@@ -122,11 +126,12 @@ and do not use the local SeaweedFS setup script.
 This creates the `$NAMESPACE` namespace and installs:
 - PostgreSQL (`postgresql.$NAMESPACE.svc.cluster.local:5432`)
 - SeaweedFS S3 (`seaweedfs.$NAMESPACE.svc.cluster.local:8333`, bucket: `batch-gateway`)
-- Redis (`redis-master.$NAMESPACE.svc.cluster.local:6379`; its URL is added to `batch-gateway-secrets`)
+- Valkey (`redis.$NAMESPACE.svc.cluster.local:6379`; its Redis-protocol URL is added to the `redis-url` key in `batch-gateway-secrets`)
 - `batch-gateway-secrets` Secret
 
-For production, replace PostgreSQL and S3 with your own endpoints, plus Redis
-when you use the Redis async transport. For the SQL async transport, ensure the
+For production, replace PostgreSQL and S3 with your own endpoints, plus a
+Redis-compatible server such as Redis or Valkey when you use the Redis async
+transport. For the SQL async transport, ensure the
 referenced Secret contains `postgresql-url` and configure
 `spec.processor.asyncConfig.sql`.
 
@@ -164,6 +169,102 @@ With
 `autoCreateBucket: true`, set `spec.fileStorage.gcs.projectId` to the Google
 Cloud project that will own the bucket, keep `verifyBucketOnStart: true`, and
 grant `storage.buckets.create`.
+
+To cap each shared PostgreSQL pool used by the API server, processor, and GC,
+set `spec.dbClient.postgresql.pool.maxConnections`. A positive value overrides
+`pool_max_conns` in the PostgreSQL URL; each pool uses at least two connections.
+Zero or omission preserves the URL's `pool_max_conns` when set, otherwise the
+pgx default. This is separate from
+`spec.processor.asyncConfig.sql.maxConnections`, which caps the async SQL queue
+pool.
+
+#### API server tenant and proxy token checks
+
+The API server can require a shared token in `X-Gateway-Token` and a tenant
+header (`X-MaaS-Username` by default). The operator renders
+`spec.apiServer.config.allowAnonymousTenant: true` when the field is unset, to
+preserve the API server's previous behavior and keep existing gateways running
+after an upgrade. With this setting, the proxy token is not checked; requests
+without a tenant header use the `default` tenant, while a supplied tenant
+header is still used.
+
+At startup, the API server logs when anonymous tenants are allowed:
+
+```text
+anonymous tenant allowed: the proxy token is not checked and requests without the tenant header are served as the default tenant
+```
+
+> **Warning:** when these checks are off, the API server trusts the tenant
+> header from any client that can reach its Service. Keep it reachable only
+> through the authenticated proxy, and have that proxy replace the tenant
+> header with the value from the authenticated identity.
+
+To enable both checks, prepare the Secret and auth proxy before changing the
+field:
+
+1. Add a token under the `apiserver-proxy-token` key in the Secret named by
+   `spec.secretRef`. For the default installation Secret:
+
+   ```bash
+   TOKEN=$(openssl rand -hex 32)
+   builtin printf '{"stringData":{"apiserver-proxy-token":"%s"}}' "$TOKEN" |
+     oc -n "$NAMESPACE" patch secret batch-gateway-secrets --type merge \
+       --patch-file /dev/stdin
+   ```
+
+   The token is sent through standard input, not exposed in the `oc` process arguments.
+
+2. Configure the auth proxy to send that token in `X-Gateway-Token` and set
+   the tenant header from the authenticated identity, replacing any value the
+   client sent. With Kuadrant, add both headers to the batch route's AuthPolicy:
+
+   ```yaml
+   spec:
+     rules:
+       response:
+         success:
+           headers:
+             x-maas-username:
+               plain:
+                 selector: auth.identity.user.username # depends on the authentication method
+             x-gateway-token:
+               plain:
+                 value: "<TOKEN>" # same value as apiserver-proxy-token
+   ```
+
+   Anyone who can read AuthPolicies in the namespace can read a token in
+   `plain.value`; restrict that access like the Secret.
+
+After both are ready, set:
+
+```yaml
+spec:
+  apiServer:
+    config:
+      allowAnonymousTenant: false
+```
+
+The API server reads the token at startup. Restart it after rotating the token
+in the Secret and auth proxy. The local development samples enable anonymous
+tenants because they do not set up an auth proxy.
+
+Check that a request through the auth proxy succeeds and an unauthenticated
+request sent directly to the API server Service returns `401`.
+
+If you roll back to an operator release without this field, the older operator
+does not render it. An API server from before these checks keeps serving
+without them. A newer API server may enforce the checks when the setting is
+missing and will not start without the `apiserver-proxy-token` Secret key.
+See the Batch Gateway [security guide](https://github.com/llm-d/llm-d-batch-gateway/blob/main/docs/guides/security.md)
+for how the API server handles the token and tenant header.
+
+This option requires a Batch Gateway chart revision with API-server
+NetworkPolicy support. The operator creates no API-server `NetworkPolicy` unless
+`spec.apiServer.networkPolicy.enabled` is `true`; when omitted or false, this
+feature does not restrict ingress. When enabled, `api.from` must list allowed
+peers. An empty or omitted `observability.from` allows no peers to reach the
+observability port. Each peer follows native Kubernetes `NetworkPolicyPeer`
+rules.
 
 ### Step 3: Create LLMBatchGateway CR
 

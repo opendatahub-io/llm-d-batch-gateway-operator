@@ -8,6 +8,7 @@ OPERATOR_DIR="$(cd "${SCRIPT_DIR}/.." && pwd)"
 
 KIND_CLUSTER_NAME="${KIND_CLUSTER_NAME:-batch-gateway-dev}"
 NAMESPACE="${NAMESPACE:-default}"
+VALKEY_RELEASE="${VALKEY_RELEASE:-${REDIS_RELEASE:-redis}}"
 # Operator namespace, must match config/default/kustomization.yaml's `namespace:` field.
 OPERATOR_NAMESPACE="${OPERATOR_NAMESPACE:-llm-d-batch-gateway-operator-system}"
 OPERATOR_IMG="${OPERATOR_IMG:-localhost/llm-d-batch-gateway-operator:dev}"
@@ -164,9 +165,10 @@ detect_file_storage_type() {
 }
 
 install_prereqs() {
-    # Async dispatch is the only mode; Redis is always required.
+    # Async dispatch is the only mode; Valkey supplies the Redis protocol queue.
     FILE_CLIENT_TYPE="$(detect_file_storage_type)" \
-        INSTALL_REDIS=true \
+        INSTALL_VALKEY=true \
+        VALKEY_RELEASE="${VALKEY_RELEASE}" \
         NAMESPACE="${NAMESPACE}" \
         SEAWEEDFS_ACCESS_KEY="${SEAWEEDFS_ACCESS_KEY}" \
         SEAWEEDFS_SECRET_KEY="${SEAWEEDFS_SECRET_KEY}" \
@@ -303,16 +305,16 @@ prepare_gate_deps() {
 }
 
 prepare_gate_redis() {
-    step "Setting Redis dispatch gate budget..."
-    wait_for "redis-master-0 to be ready" \
-        "kubectl get pod redis-master-0 -n ${NAMESPACE} -o jsonpath='{.status.phase}' | grep -q Running"
+    step "Setting Redis-protocol dispatch gate budget in Valkey..."
+    wait_for "Valkey deployment to be ready" \
+        "kubectl get deployment/${VALKEY_RELEASE} -n ${NAMESPACE}"
     # The redis gate reads this key and applies a binary decision:
     #   budget > 0  → dispatch (requests are processed)
     #   budget <= 0 → refuse  (requests stay in queue)
     # The value is exposed via the async_dispatch_budget metric.
     # See: https://github.com/llm-d-incubation/llm-d-async/blob/main/pkg/redis/dispatch_gate.go
-    kubectl exec redis-master-0 -n "${NAMESPACE}" -- redis-cli SET dispatch-gate-budget 0.1
-    log "Redis gate budget set to 0.1."
+    kubectl exec "deployment/${VALKEY_RELEASE}" -n "${NAMESPACE}" -- valkey-cli SET dispatch-gate-budget 0.1
+    log "Redis-protocol gate budget set to 0.1."
 }
 
 prepare_gate_scrape() {
