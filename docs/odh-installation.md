@@ -191,7 +191,7 @@ The batch-gateway API server can require two things from the auth proxy in front
 
 `spec.apiServer.config.allowAnonymousTenant` turns both checks on or off.
 
-**Unset or `true` (default): the checks are off.** A request without the tenant header is served as the `default` tenant. This is how the API server behaved before the checks existed, so a gateway upgraded from an earlier release needs no change and keeps serving. The API server logs it at startup:
+**Unset or `true` (default): the checks are off.** A request with the tenant header is served as that tenant; only a request without it (or with an empty value) is served as the `default` tenant. This is how the API server behaved before the checks existed, so a gateway upgraded from an earlier release needs no change and keeps serving. The API server logs it at startup:
 
 ```text
 anonymous tenant allowed: the proxy token is not checked and requests without the tenant header are served as the default tenant
