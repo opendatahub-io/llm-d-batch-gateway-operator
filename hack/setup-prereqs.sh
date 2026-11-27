@@ -97,13 +97,24 @@ install_postgresql() {
 
 install_valkey() {
 	step "Installing Valkey from chart ${VALKEY_CHART_VERSION}..."
+	local openshift_security_context=()
+	if kubectl api-resources --api-group=security.openshift.io -o name 2>/dev/null | grep -q securitycontextconstraints; then
+		log "OpenShift detected; letting the SCC assign Valkey user and group IDs."
+		openshift_security_context=(
+			--set podSecurityContext.runAsUser=null
+			--set podSecurityContext.fsGroup=null
+			--set securityContext.runAsUser=null
+		)
+	fi
+
 	helm upgrade --install "${VALKEY_RELEASE}" valkey \
 		--repo "${VALKEY_CHART_REPO}" --version "${VALKEY_CHART_VERSION}" \
 		--namespace "${NAMESPACE}" --create-namespace \
 		--set "fullnameOverride=${VALKEY_RELEASE}" \
 		--set auth.enabled=false \
 		--set persistence.enabled=true --set persistence.size=1Gi \
-		--set-string "extraConfig=appendonly yes"
+		--set-string "extraConfig=appendonly yes" \
+		"${openshift_security_context[@]}"
 
 	kubectl rollout status deployment/"${VALKEY_RELEASE}" -n "${NAMESPACE}" --timeout=180s
 	log "Valkey installed (Redis protocol, no auth)."
