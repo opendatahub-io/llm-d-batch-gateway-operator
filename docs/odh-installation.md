@@ -184,17 +184,65 @@ EOF
 
 #### API server tenant and proxy token checks
 
-The batch-gateway API server can require the auth proxy in front of it to send a shared token (`X-Gateway-Token`) and a tenant header (`X-MaaS-Username` by default), and reject requests without them with `401`. `spec.apiServer.config.allowAnonymousTenant` controls this:
+The batch-gateway API server can require two things from the auth proxy in front of it, and answer `401` to requests without them:
 
-- Unset or `true`: the checks are off. A request without the tenant header is served as the `default` tenant. This is how the API server behaved before the checks existed, so existing gateways keep working after an upgrade.
-- `false`: both checks are on. Add the token to the Secret in `spec.secretRef` under the key `apiserver-proxy-token` before setting it (the API server does not start without it), and configure the auth proxy to send the same value in `X-Gateway-Token` and to set the tenant header from the authenticated identity. See the batch-gateway [security guide](https://github.com/llm-d/llm-d-batch-gateway/blob/main/docs/guides/security.md).
+- a shared token in `X-Gateway-Token`, proving the request came through the proxy;
+- a tenant header (`X-MaaS-Username` by default), naming the tenant whose files and batches the request may use.
 
-```yaml
-spec:
-  apiServer:
-    config:
-      allowAnonymousTenant: false
+`spec.apiServer.config.allowAnonymousTenant` turns both checks on or off.
+
+**Unset or `true` (default): the checks are off.** A request without the tenant header is served as the `default` tenant. This is how the API server behaved before the checks existed, so a gateway upgraded from an earlier release needs no change and keeps serving. The API server logs it at startup:
+
+```text
+anonymous tenant allowed: the proxy token is not checked and requests without the tenant header are served as the default tenant
 ```
+
+> **Warning:** with the checks off, the API server trusts the tenant header from anyone who can reach it. A client that bypasses the auth proxy, or a proxy that passes a client's own tenant header through, can act as any tenant. Keep the API server reachable only through the auth proxy, and have the proxy set the tenant header from the authenticated identity.
+
+**`false`: both checks are on.** Turn them on in this order, so the API server never runs without a token the proxy can send:
+
+1. Add a token to the Secret named in `spec.secretRef`, under the key `apiserver-proxy-token`. With the checks on, the API server does not start without it.
+
+   ```bash
+   TOKEN=$(openssl rand -hex 32)
+   oc -n $NAMESPACE patch secret batch-gateway-secrets --type merge \
+     -p "{\"stringData\":{\"apiserver-proxy-token\":\"$TOKEN\"}}"
+   ```
+
+2. Make the auth proxy send the same token in `X-Gateway-Token` and set the tenant header from the authenticated identity, replacing any value the client sent. With Kuadrant, add both to the batch route's AuthPolicy:
+
+   ```yaml
+   spec:
+     rules:
+       response:
+         success:
+           headers:
+             x-maas-username:
+               plain:
+                 selector: auth.identity.user.username   # depends on the authentication method
+             x-gateway-token:
+               plain:
+                 value: "<TOKEN>"                        # same value as apiserver-proxy-token
+   ```
+
+   See the batch-gateway [Kuadrant integration guide](https://github.com/llm-d/llm-d-batch-gateway/blob/main/docs/guides/kuadrant-integration.md#4-authentication--authorization) for complete policies. Anyone who can read AuthPolicies in that namespace can read a token in `plain.value`, so restrict that access like the Secret.
+
+3. Set the field. The operator rolls out the API server with the checks on.
+
+   ```yaml
+   spec:
+     apiServer:
+       config:
+         allowAnonymousTenant: false
+   ```
+
+4. Check: a request through the auth proxy succeeds, and a request sent to the API server Service directly gets `401`. The startup log line above no longer appears.
+
+To rotate the token, update the Secret and the AuthPolicy, then restart the API server: it reads the token once, at startup.
+
+If you roll the operator back to a release without this field, the gateway serves without the checks again, whatever you set here: the older release does not render the setting.
+
+See the batch-gateway [security guide](https://github.com/llm-d/llm-d-batch-gateway/blob/main/docs/guides/security.md) for how the API server handles the token and the tenant header.
 
 ### Step 4: Check Batch Gateway status
 
