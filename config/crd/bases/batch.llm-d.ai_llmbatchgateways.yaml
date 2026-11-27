@@ -336,9 +336,8 @@ spec:
                         x-kubernetes-validations:
                         - message: each peer must set ipBlock alone or at least one
                             of podSelector and namespaceSelector
-                          rule: '!has(self.from) || self.from.all(peer, (has(peer.ipBlock)
-                            && !has(peer.podSelector) && !has(peer.namespaceSelector))
-                            || (!has(peer.ipBlock) && (has(peer.podSelector) || has(peer.namespaceSelector))))'
+                          rule: '!has(self.from) || self.from.all(peer, has(peer.ipBlock)
+                            != (has(peer.podSelector) || has(peer.namespaceSelector)))'
                       enabled:
                         default: false
                         description: Enabled creates an ingress-only NetworkPolicy
@@ -490,9 +489,8 @@ spec:
                         x-kubernetes-validations:
                         - message: each peer must set ipBlock alone or at least one
                             of podSelector and namespaceSelector
-                          rule: '!has(self.from) || self.from.all(peer, (has(peer.ipBlock)
-                            && !has(peer.podSelector) && !has(peer.namespaceSelector))
-                            || (!has(peer.ipBlock) && (has(peer.podSelector) || has(peer.namespaceSelector))))'
+                          rule: '!has(self.from) || self.from.all(peer, has(peer.ipBlock)
+                            != (has(peer.podSelector) || has(peer.namespaceSelector)))'
                     type: object
                     x-kubernetes-validations:
                     - message: networkPolicy.api.from must not be empty when networkPolicy

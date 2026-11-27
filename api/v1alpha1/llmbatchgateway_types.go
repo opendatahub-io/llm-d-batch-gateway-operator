@@ -349,7 +349,7 @@ type APIServerNetworkPolicySpec struct {
 
 // NetworkPolicyPeersSpec lists Kubernetes NetworkPolicy peers allowed to reach
 // one API server port.
-// +kubebuilder:validation:XValidation:rule="!has(self.from) || self.from.all(peer, (has(peer.ipBlock) && !has(peer.podSelector) && !has(peer.namespaceSelector)) || (!has(peer.ipBlock) && (has(peer.podSelector) || has(peer.namespaceSelector))))",message="each peer must set ipBlock alone or at least one of podSelector and namespaceSelector"
+// +kubebuilder:validation:XValidation:rule="!has(self.from) || self.from.all(peer, has(peer.ipBlock) != (has(peer.podSelector) || has(peer.namespaceSelector)))",message="each peer must set ipBlock alone or at least one of podSelector and namespaceSelector"
 type NetworkPolicyPeersSpec struct {
 	// From contains namespaceSelector, podSelector, or ipBlock peers.
 	From []networkingv1.NetworkPolicyPeer `json:"from,omitempty"`
