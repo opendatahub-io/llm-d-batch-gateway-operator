@@ -311,8 +311,14 @@ type APIServerConfigSpec struct {
 	InputHeaders map[string]string `json:"inputHeaders,omitempty"`
 
 	// AllowAnonymousTenant serves requests without the tenant header as the
-	// default tenant. Use only for non-production deployments without an auth proxy.
-	AllowAnonymousTenant bool `json:"allowAnonymousTenant,omitempty"`
+	// default tenant and turns off the API server's auth proxy token check.
+	// Unset means true, matching the API server's behavior before those checks
+	// existed, so existing deployments keep starting after an upgrade. Set it to
+	// false to require the Secret in spec.secretRef to contain an
+	// apiserver-proxy-token key and the auth proxy to send that token in
+	// X-Gateway-Token and set the tenant header from the authenticated identity.
+	// +optional
+	AllowAnonymousTenant *bool `json:"allowAnonymousTenant,omitempty"`
 
 	// BatchAPI configures the batch job submission endpoint behaviour.
 	BatchAPI *BatchAPIConfig `json:"batchAPI,omitempty"`

@@ -72,7 +72,12 @@ spec:
                       allowAnonymousTenant:
                         description: |-
                           AllowAnonymousTenant serves requests without the tenant header as the
-                          default tenant. Use only for non-production deployments without an auth proxy.
+                          default tenant and turns off the API server's auth proxy token check.
+                          Unset means true, matching the API server's behavior before those checks
+                          existed, so existing deployments keep starting after an upgrade. Set it to
+                          false to require the Secret in spec.secretRef to contain an
+                          apiserver-proxy-token key and the auth proxy to send that token in
+                          X-Gateway-Token and set the tenant header from the authenticated identity.
                         type: boolean
                       batchAPI:
                         description: BatchAPI configures the batch job submission

@@ -41,6 +41,11 @@ func (in *APIServerConfigSpec) DeepCopyInto(out *APIServerConfigSpec) {
 			(*out)[key] = val
 		}
 	}
+	if in.AllowAnonymousTenant != nil {
+		in, out := &in.AllowAnonymousTenant, &out.AllowAnonymousTenant
+		*out = new(bool)
+		**out = **in
+	}
 	if in.BatchAPI != nil {
 		in, out := &in.BatchAPI, &out.BatchAPI
 		*out = new(BatchAPIConfig)

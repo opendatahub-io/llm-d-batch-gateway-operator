@@ -1452,7 +1452,7 @@ func TestSpecToHelmValues_InputHeaders(t *testing.T) {
 func TestSpecToHelmValues_AllowAnonymousTenant(t *testing.T) {
 	gw := minimalGateway()
 	gw.Spec.APIServer.Config = &batchv1alpha1.APIServerConfigSpec{
-		AllowAnonymousTenant: true,
+		AllowAnonymousTenant: ptr.To(true),
 	}
 
 	vals := specToBatchHelmValues(gw, testSecretName(gw), testImages(), tlspkg.ProfileValues{})

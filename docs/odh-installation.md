@@ -178,7 +178,36 @@ pgx default. This is separate from
 `spec.processor.asyncConfig.sql.maxConnections`, which caps the async SQL queue
 pool.
 
-When proxy-token validation is enabled, the referenced Secret must contain `apiserver-proxy-token` and the auth proxy must send it in `X-Gateway-Token`; set `spec.apiServer.config.allowAnonymousTenant` only for non-production use without an auth proxy (the local samples enable it).
+#### API server tenant and proxy token checks
+
+The API server can require a shared token in `X-Gateway-Token` and a tenant
+header (`X-MaaS-Username` by default). The operator renders
+`spec.apiServer.config.allowAnonymousTenant: true` when the field is unset, to
+preserve the API server's previous behavior and keep existing gateways running
+after an upgrade. With this setting, the proxy token is not checked; requests
+without a tenant header use the `default` tenant, while a supplied tenant
+header is still used.
+
+> **Warning:** when these checks are off, the API server trusts the tenant
+> header from any client that can reach its Service. Keep it reachable only
+> through the authenticated proxy, and have that proxy replace the tenant
+> header with the value from the authenticated identity.
+
+To enable both checks, first add a token under the `apiserver-proxy-token` key
+in the Secret named by `spec.secretRef`, then configure the auth proxy to send
+the same value in `X-Gateway-Token` and set the tenant header from the
+authenticated identity. After both are ready, set:
+
+```yaml
+spec:
+  apiServer:
+    config:
+      allowAnonymousTenant: false
+```
+
+The API server reads the token at startup. Restart it after rotating the token
+in the Secret and auth proxy. The local development samples enable anonymous
+tenants because they do not set up an auth proxy.
 
 This option requires a Batch Gateway chart revision with API-server
 NetworkPolicy support. The operator creates no API-server `NetworkPolicy` unless
