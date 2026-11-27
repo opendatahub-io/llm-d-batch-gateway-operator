@@ -240,7 +240,7 @@ anonymous tenant allowed: the proxy token is not checked and requests without th
 
 To rotate the token, update the Secret and the AuthPolicy, then restart the API server: it reads the token once, at startup.
 
-If you roll the operator back to a release without this field, the gateway serves without the checks again, whatever you set here: the older release does not render the setting.
+If you roll the operator back to a release without this field, the older release does not render the setting, and what happens depends on the API server it deploys. An API server from before the checks existed serves without them, whatever you set here. A newer API server treats the missing setting as `false`: it enforces the checks, and does not start if the Secret has no `apiserver-proxy-token`.
 
 See the batch-gateway [security guide](https://github.com/llm-d/llm-d-batch-gateway/blob/main/docs/guides/security.md) for how the API server handles the token and the tenant header.
 
