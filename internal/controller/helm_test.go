@@ -49,10 +49,9 @@ func mustSpecToBatchHelmValues(
 	gw *batchv1alpha1.LLMBatchGateway,
 	secretName string,
 	images ComponentImages,
-	tlsProfile tlspkg.ProfileValues,
 ) map[string]any {
 	t.Helper()
-	values, err := specToBatchHelmValues(gw, secretName, images, tlsProfile)
+	values, err := specToBatchHelmValues(gw, secretName, images, tlspkg.ProfileValues{})
 	if err != nil {
 		t.Fatalf("specToBatchHelmValues() error: %v", err)
 	}
@@ -177,7 +176,7 @@ func TestSpecToHelmValues(t *testing.T) {
 		APIServer: "ghcr.io/llm-d/batch-gateway-apiserver:v0.1.0",
 		Processor: "ghcr.io/llm-d/batch-gateway-processor:v0.1.0",
 		GC:        "ghcr.io/llm-d/batch-gateway-gc:v0.1.0",
-	}, tlspkg.ProfileValues{})
+	})
 
 	t.Run("global secret name", func(t *testing.T) {
 		global, ok := vals["global"].(map[string]interface{})
@@ -280,7 +279,7 @@ func TestSpecToHelmValues_Monitoring(t *testing.T) {
 	gw := minimalGateway()
 	gw.Spec.Monitoring = &batchv1alpha1.MonitoringSpec{Enabled: true}
 
-	vals := mustSpecToBatchHelmValues(t, gw, testSecretName(gw), testImages(), tlspkg.ProfileValues{})
+	vals := mustSpecToBatchHelmValues(t, gw, testSecretName(gw), testImages())
 
 	t.Run("service monitor enabled", func(t *testing.T) {
 		apiserver := vals["apiserver"].(map[string]interface{})
@@ -329,7 +328,7 @@ func TestSpecToHelmValues_TLS(t *testing.T) {
 		},
 	}
 
-	vals := mustSpecToBatchHelmValues(t, gw, testSecretName(gw), testImages(), tlspkg.ProfileValues{})
+	vals := mustSpecToBatchHelmValues(t, gw, testSecretName(gw), testImages())
 
 	apiserver := vals["apiserver"].(map[string]interface{})
 	tls := apiserver["tls"].(map[string]interface{})
@@ -360,7 +359,7 @@ func TestSpecToHelmValues_HTTPRoute(t *testing.T) {
 		},
 	}
 
-	vals := mustSpecToBatchHelmValues(t, gw, testSecretName(gw), testImages(), tlspkg.ProfileValues{})
+	vals := mustSpecToBatchHelmValues(t, gw, testSecretName(gw), testImages())
 
 	apiserver := vals["apiserver"].(map[string]interface{})
 	hr := apiserver["httpRoute"].(map[string]interface{})
@@ -617,7 +616,7 @@ func TestSpecToHelmValues_Logging(t *testing.T) {
 		Logging: &batchv1alpha1.LoggingConfig{Verbosity: 4},
 	}
 
-	vals := mustSpecToBatchHelmValues(t, gw, testSecretName(gw), testImages(), tlspkg.ProfileValues{})
+	vals := mustSpecToBatchHelmValues(t, gw, testSecretName(gw), testImages())
 
 	t.Run("apiserver logging verbosity", func(t *testing.T) {
 		apiserver := vals["apiserver"].(map[string]interface{})
@@ -658,7 +657,7 @@ func TestSpecToHelmValues_FSStorage(t *testing.T) {
 		},
 	}
 
-	vals := mustSpecToBatchHelmValues(t, gw, testSecretName(gw), testImages(), tlspkg.ProfileValues{})
+	vals := mustSpecToBatchHelmValues(t, gw, testSecretName(gw), testImages())
 
 	global := vals["global"].(map[string]interface{})
 	fc := global["fileClient"].(map[string]interface{})
@@ -694,7 +693,7 @@ func TestSpecToHelmValues_GCSStorage(t *testing.T) {
 		},
 	}
 
-	vals := specToBatchHelmValues(gw, testSecretName(gw), testImages(), tlspkg.ProfileValues{})
+	vals := mustSpecToBatchHelmValues(t, gw, testSecretName(gw), testImages())
 
 	global := vals["global"].(map[string]interface{})
 	fc := global["fileClient"].(map[string]interface{})
@@ -728,7 +727,7 @@ func TestSpecToHelmValues_GCSStorageAutoCreate(t *testing.T) {
 		},
 	}
 
-	vals := specToBatchHelmValues(gw, testSecretName(gw), testImages(), tlspkg.ProfileValues{})
+	vals := mustSpecToBatchHelmValues(t, gw, testSecretName(gw), testImages())
 
 	global := vals["global"].(map[string]interface{})
 	fc := global["fileClient"].(map[string]interface{})
@@ -833,7 +832,7 @@ func TestSpecToHelmValues_OTEL(t *testing.T) {
 		PostgresqlTracing: true,
 	}
 
-	vals := mustSpecToBatchHelmValues(t, gw, testSecretName(gw), testImages(), tlspkg.ProfileValues{})
+	vals := mustSpecToBatchHelmValues(t, gw, testSecretName(gw), testImages())
 
 	global := vals["global"].(map[string]interface{})
 	otel := global["otel"].(map[string]interface{})
@@ -862,7 +861,7 @@ func TestSpecToHelmValues_TLSSecretName(t *testing.T) {
 		SecretName: "my-tls-secret",
 	}
 
-	vals := mustSpecToBatchHelmValues(t, gw, testSecretName(gw), testImages(), tlspkg.ProfileValues{})
+	vals := mustSpecToBatchHelmValues(t, gw, testSecretName(gw), testImages())
 
 	apiserver := vals["apiserver"].(map[string]interface{})
 	tls := apiserver["tls"].(map[string]interface{})
@@ -882,7 +881,7 @@ func TestSpecToHelmValues_TLSDNSNames(t *testing.T) {
 		},
 	}
 
-	vals := mustSpecToBatchHelmValues(t, gw, testSecretName(gw), testImages(), tlspkg.ProfileValues{})
+	vals := mustSpecToBatchHelmValues(t, gw, testSecretName(gw), testImages())
 
 	apiserver := vals["apiserver"].(map[string]interface{})
 	tls := apiserver["tls"].(map[string]interface{})
@@ -909,7 +908,7 @@ func TestSpecToHelmValues_HTTPRouteAnnotations(t *testing.T) {
 		},
 	}
 
-	vals := mustSpecToBatchHelmValues(t, gw, testSecretName(gw), testImages(), tlspkg.ProfileValues{})
+	vals := mustSpecToBatchHelmValues(t, gw, testSecretName(gw), testImages())
 
 	apiserver := vals["apiserver"].(map[string]interface{})
 	hr := apiserver["httpRoute"].(map[string]interface{})
@@ -948,7 +947,7 @@ func TestSpecToHelmValues_ModelGateways(t *testing.T) {
 		InferenceObjective: testAsyncObjective,
 	}
 
-	vals := mustSpecToBatchHelmValues(t, gw, testSecretName(gw), testImages(), tlspkg.ProfileValues{})
+	vals := mustSpecToBatchHelmValues(t, gw, testSecretName(gw), testImages())
 
 	processor := vals["processor"].(map[string]interface{})
 	config := processor["config"].(map[string]interface{})
@@ -971,7 +970,7 @@ func TestSpecToHelmValues_PerGatewayInferenceObjective(t *testing.T) {
 		"model-b": {InferencePoolName: "pool-b"},
 	}
 
-	vals := mustSpecToBatchHelmValues(t, gw, testSecretName(gw), testImages(), tlspkg.ProfileValues{})
+	vals := mustSpecToBatchHelmValues(t, gw, testSecretName(gw), testImages())
 
 	processor := vals["processor"].(map[string]interface{})
 	config := processor["config"].(map[string]interface{})
@@ -996,7 +995,7 @@ func TestSpecToHelmValues_PrometheusRule(t *testing.T) {
 		Labels:  map[string]string{"prometheus": "kube-prometheus"},
 	}
 
-	vals := mustSpecToBatchHelmValues(t, gw, testSecretName(gw), testImages(), tlspkg.ProfileValues{})
+	vals := mustSpecToBatchHelmValues(t, gw, testSecretName(gw), testImages())
 
 	pr := vals["prometheusRule"].(map[string]interface{})
 	if got := pr["enabled"]; got != true {
@@ -1029,7 +1028,7 @@ func TestSpecToHelmValues_APIServerConfig(t *testing.T) {
 		},
 	}
 
-	vals := mustSpecToBatchHelmValues(t, gw, testSecretName(gw), testImages(), tlspkg.ProfileValues{})
+	vals := mustSpecToBatchHelmValues(t, gw, testSecretName(gw), testImages())
 
 	apiserver := vals["apiserver"].(map[string]interface{})
 	config := apiserver["config"].(map[string]interface{})
@@ -1106,7 +1105,7 @@ func TestSpecToHelmValues_ProcessorConfig(t *testing.T) {
 		EnablePprof:                    true,
 	}
 
-	vals := mustSpecToBatchHelmValues(t, gw, testSecretName(gw), testImages(), tlspkg.ProfileValues{})
+	vals := mustSpecToBatchHelmValues(t, gw, testSecretName(gw), testImages())
 
 	processor := vals["processor"].(map[string]interface{})
 	config := processor["config"].(map[string]interface{})
@@ -1173,7 +1172,7 @@ func TestSpecToHelmValues_EmptyExtraEndpointsOverride(t *testing.T) {
 		ExtraEndpoints: ptr.To([]string{}),
 	}
 
-	vals := mustSpecToBatchHelmValues(t, gateway, testSecretName(gateway), testImages(), tlspkg.ProfileValues{})
+	vals := mustSpecToBatchHelmValues(t, gateway, testSecretName(gateway), testImages())
 
 	apiserver := vals["apiserver"].(map[string]interface{})
 	apiConfig := apiserver["config"].(map[string]interface{})
@@ -1208,7 +1207,7 @@ func TestSpecToHelmValues_ProcessorAIMD(t *testing.T) {
 		},
 	}
 
-	vals := mustSpecToBatchHelmValues(t, gw, testSecretName(gw), testImages(), tlspkg.ProfileValues{})
+	vals := mustSpecToBatchHelmValues(t, gw, testSecretName(gw), testImages())
 
 	processor := vals["processor"].(map[string]interface{})
 	config := processor["config"].(map[string]interface{})
@@ -1241,7 +1240,7 @@ func TestSpecToHelmValues_GCConfig(t *testing.T) {
 		MaxConcurrency: 10,
 	}
 
-	vals := mustSpecToBatchHelmValues(t, gw, testSecretName(gw), testImages(), tlspkg.ProfileValues{})
+	vals := mustSpecToBatchHelmValues(t, gw, testSecretName(gw), testImages())
 
 	gc := vals["gc"].(map[string]interface{})
 	config := gc["config"].(map[string]interface{})
@@ -1264,7 +1263,7 @@ func TestSpecToHelmValues_GCReconciler(t *testing.T) {
 		},
 	}
 
-	vals := mustSpecToBatchHelmValues(t, gw, testSecretName(gw), testImages(), tlspkg.ProfileValues{})
+	vals := mustSpecToBatchHelmValues(t, gw, testSecretName(gw), testImages())
 
 	gc := vals["gc"].(map[string]interface{})
 	config := gc["config"].(map[string]interface{})
@@ -1286,7 +1285,7 @@ func TestSpecToHelmValues_GCReconcilerDisabled(t *testing.T) {
 		Reconciler: &batchv1alpha1.ReconcilerSpec{},
 	}
 
-	vals := mustSpecToBatchHelmValues(t, gw, testSecretName(gw), testImages(), tlspkg.ProfileValues{})
+	vals := mustSpecToBatchHelmValues(t, gw, testSecretName(gw), testImages())
 
 	gc := vals["gc"].(map[string]interface{})
 	config := gc["config"].(map[string]interface{})
@@ -1306,7 +1305,7 @@ func TestSpecToHelmValues_GCReconcilerNil(t *testing.T) {
 	gw := minimalGateway()
 	gw.Spec.GC.Config = &batchv1alpha1.GCConfigSpec{}
 
-	vals := mustSpecToBatchHelmValues(t, gw, testSecretName(gw), testImages(), tlspkg.ProfileValues{})
+	vals := mustSpecToBatchHelmValues(t, gw, testSecretName(gw), testImages())
 
 	gc := vals["gc"].(map[string]interface{})
 	if _, hasConfig := gc["config"]; hasConfig {
@@ -1320,7 +1319,7 @@ func TestSpecToHelmValues_GCReconcilerNil(t *testing.T) {
 func TestSpecToHelmValues_DBClientHasNoRedisSettings(t *testing.T) {
 	gw := minimalGateway()
 
-	vals := mustSpecToBatchHelmValues(t, gw, testSecretName(gw), testImages(), tlspkg.ProfileValues{})
+	vals := mustSpecToBatchHelmValues(t, gw, testSecretName(gw), testImages())
 
 	global := vals["global"].(map[string]interface{})
 	dbClient := global["dbClient"].(map[string]interface{})
@@ -1341,7 +1340,7 @@ func TestSpecToHelmValues_DBClientPostgreSQLPoolMaxConnections(t *testing.T) {
 		},
 	}
 
-	vals := mustSpecToBatchHelmValues(t, gw, testSecretName(gw), testImages(), tlspkg.ProfileValues{})
+	vals := mustSpecToBatchHelmValues(t, gw, testSecretName(gw), testImages())
 
 	global := vals["global"].(map[string]interface{})
 	dbClient := global["dbClient"].(map[string]interface{})
@@ -1365,7 +1364,7 @@ func TestSpecToHelmValues_ResourceRequirements(t *testing.T) {
 		},
 	}
 
-	vals := mustSpecToBatchHelmValues(t, gw, testSecretName(gw), testImages(), tlspkg.ProfileValues{})
+	vals := mustSpecToBatchHelmValues(t, gw, testSecretName(gw), testImages())
 
 	apiserver := vals["apiserver"].(map[string]interface{})
 	res := apiserver["resources"].(map[string]interface{})
@@ -1402,7 +1401,7 @@ func TestSpecToHelmValues_GCReplicasAndResources(t *testing.T) {
 		},
 	}
 
-	vals := mustSpecToBatchHelmValues(t, gw, testSecretName(gw), testImages(), tlspkg.ProfileValues{})
+	vals := mustSpecToBatchHelmValues(t, gw, testSecretName(gw), testImages())
 
 	gc := vals["gc"].(map[string]interface{})
 	if got := gc["replicaCount"]; got != int64(3) {
@@ -1426,7 +1425,7 @@ func TestSpecToHelmValues_ImagePullSecrets(t *testing.T) {
 		{Name: "another-secret"},
 	}
 
-	vals := mustSpecToBatchHelmValues(t, gw, testSecretName(gw), testImages(), tlspkg.ProfileValues{})
+	vals := mustSpecToBatchHelmValues(t, gw, testSecretName(gw), testImages())
 
 	global := vals["global"].(map[string]interface{})
 	secrets, ok := global["imagePullSecrets"].([]interface{})
@@ -1454,7 +1453,7 @@ func TestSpecToHelmValues_InputHeaders(t *testing.T) {
 		},
 	}
 
-	vals := mustSpecToBatchHelmValues(t, gw, testSecretName(gw), testImages(), tlspkg.ProfileValues{})
+	vals := mustSpecToBatchHelmValues(t, gw, testSecretName(gw), testImages())
 
 	apiserver := vals["apiserver"].(map[string]interface{})
 	config := apiserver["config"].(map[string]interface{})
@@ -1470,7 +1469,7 @@ func TestSpecToHelmValues_AllowAnonymousTenant(t *testing.T) {
 		AllowAnonymousTenant: ptr.To(true),
 	}
 
-	vals := mustSpecToBatchHelmValues(t, gw, testSecretName(gw), testImages(), tlspkg.ProfileValues{})
+	vals := mustSpecToBatchHelmValues(t, gw, testSecretName(gw), testImages())
 
 	apiserver := vals["apiserver"].(map[string]interface{})
 	config := apiserver["config"].(map[string]interface{})
@@ -1555,7 +1554,7 @@ func TestSpecToHelmValues_APIServerNetworkPolicy(t *testing.T) {
 		},
 	}
 
-	vals := mustSpecToBatchHelmValues(t, gw, testSecretName(gw), testImages(), tlspkg.ProfileValues{})
+	vals := mustSpecToBatchHelmValues(t, gw, testSecretName(gw), testImages())
 
 	apiserver := vals["apiserver"].(map[string]interface{})
 	networkPolicy := apiserver["networkPolicy"].(map[string]interface{})
@@ -1581,7 +1580,7 @@ func TestSpecToHelmValues_APIServerNetworkPolicy(t *testing.T) {
 }
 
 func TestSpecToHelmValues_APIServerNetworkPolicyUsesChartDefaultWhenUnset(t *testing.T) {
-	vals := mustSpecToBatchHelmValues(t, minimalGateway(), "test-secrets", testImages(), tlspkg.ProfileValues{})
+	vals := mustSpecToBatchHelmValues(t, minimalGateway(), "test-secrets", testImages())
 	apiserver := vals["apiserver"].(map[string]interface{})
 	if _, ok := apiserver["networkPolicy"]; ok {
 		t.Fatal("networkPolicy should be omitted when unset so the chart default remains disabled")
@@ -1595,7 +1594,7 @@ func TestSpecToHelmValues_SendFairnessHeader(t *testing.T) {
 		SendFairnessHeader: &enabled,
 	}
 
-	vals := mustSpecToBatchHelmValues(t, gw, testSecretName(gw), testImages(), tlspkg.ProfileValues{})
+	vals := mustSpecToBatchHelmValues(t, gw, testSecretName(gw), testImages())
 
 	processor := vals["processor"].(map[string]interface{})
 	config := processor["config"].(map[string]interface{})
@@ -1610,7 +1609,7 @@ func TestSpecToHelmValues_RouteKeyMethod(t *testing.T) {
 		RouteKeyMethod: "tenant",
 	}
 
-	vals := mustSpecToBatchHelmValues(t, gw, testSecretName(gw), testImages(), tlspkg.ProfileValues{})
+	vals := mustSpecToBatchHelmValues(t, gw, testSecretName(gw), testImages())
 
 	processor := vals["processor"].(map[string]interface{})
 	config := processor["config"].(map[string]interface{})
@@ -1625,7 +1624,7 @@ func TestSpecToHelmValues_TenantMetadataKey(t *testing.T) {
 		TenantMetadataKey: "userid",
 	}
 
-	vals := mustSpecToBatchHelmValues(t, gw, testSecretName(gw), testImages(), tlspkg.ProfileValues{})
+	vals := mustSpecToBatchHelmValues(t, gw, testSecretName(gw), testImages())
 
 	processor := vals["processor"].(map[string]interface{})
 	config := processor["config"].(map[string]interface{})
@@ -1648,7 +1647,7 @@ func TestSpecToHelmValues_AsyncDispatchModels(t *testing.T) {
 		ResultPollTimeout: "45s",
 	}
 
-	vals := mustSpecToBatchHelmValues(t, gw, testSecretName(gw), testImages(), tlspkg.ProfileValues{})
+	vals := mustSpecToBatchHelmValues(t, gw, testSecretName(gw), testImages())
 
 	processor := vals["processor"].(map[string]interface{})
 	config := processor["config"].(map[string]interface{})
@@ -1701,7 +1700,7 @@ func TestSpecToHelmValues_AsyncDispatchSQLMaxConnections(t *testing.T) {
 				SQL:               &batchv1alpha1.AsyncSQLSpec{MaxConnections: tt.maxConns},
 			}
 
-			vals := mustSpecToBatchHelmValues(t, g, testSecretName(g), testImages(), tlspkg.ProfileValues{})
+			vals := mustSpecToBatchHelmValues(t, g, testSecretName(g), testImages())
 			processor := vals["processor"].(map[string]interface{})
 			config := processor["config"].(map[string]interface{})
 			asyncDispatch := config["asyncDispatch"].(map[string]any)
@@ -1721,7 +1720,7 @@ func TestSpecToHelmValues_AsyncDispatchNilAsyncConfig(t *testing.T) {
 	gw := minimalGateway()
 	gw.Spec.Processor.AsyncConfig = nil
 
-	vals := mustSpecToBatchHelmValues(t, gw, testSecretName(gw), testImages(), tlspkg.ProfileValues{})
+	vals := mustSpecToBatchHelmValues(t, gw, testSecretName(gw), testImages())
 
 	processor := vals["processor"].(map[string]interface{})
 	config := processor["config"].(map[string]interface{})

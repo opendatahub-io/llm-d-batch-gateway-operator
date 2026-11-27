@@ -1215,7 +1215,7 @@ func TestReconcile(t *testing.T) {
 			t.Fatalf("getting stored CR: %v", err)
 		}
 
-		values := mustSpecToBatchHelmValues(t, &stored, testSecretName(&stored), testImages(), tlspkg.ProfileValues{})
+		values := mustSpecToBatchHelmValues(t, &stored, testSecretName(&stored), testImages())
 		processor, ok := values["processor"].(map[string]any)
 		if !ok {
 			t.Fatal("rendered processor config missing")
