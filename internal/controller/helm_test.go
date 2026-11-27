@@ -508,6 +508,49 @@ func TestRenderBatchChart_TenantMetadataKey(t *testing.T) {
 	t.Fatal("processor ConfigMap not rendered")
 }
 
+// TestRenderBatchChart_AllowAnonymousTenant checks what reaches the API server
+// config: without the setting the API server keeps serving requests that have
+// no tenant header or proxy token, as before those checks existed; false
+// turns both checks on.
+func TestRenderBatchChart_AllowAnonymousTenant(t *testing.T) {
+	renderer, err := NewHelmRenderer("../../batch-gateway/charts/batch-gateway", testImages(), tlspkg.ProfileValues{})
+	if err != nil {
+		t.Fatalf("NewHelmRenderer() error: %v", err)
+	}
+	tests := map[string]struct {
+		config *batchv1alpha1.APIServerConfigSpec
+		want   string
+	}{
+		"no apiserver config":        {config: nil, want: "allow_anonymous_tenant: true"},
+		"config without the setting": {config: &batchv1alpha1.APIServerConfigSpec{Port: 8000}, want: "allow_anonymous_tenant: true"},
+		"explicitly false":           {config: &batchv1alpha1.APIServerConfigSpec{AllowAnonymousTenant: ptr.To(false)}, want: "allow_anonymous_tenant: false"},
+	}
+	for name, tc := range tests {
+		t.Run(name, func(t *testing.T) {
+			gw := minimalGateway()
+			gw.Spec.APIServer.Config = tc.config
+			objects, err := renderer.RenderBatchChart(gw, testSecretName(gw))
+			if err != nil {
+				t.Fatalf("RenderBatchChart() error: %v", err)
+			}
+			for _, obj := range objects {
+				if obj.GetKind() != kindConfigMap || !strings.Contains(obj.GetName(), "apiserver") {
+					continue
+				}
+				data, found, err := unstructured.NestedString(obj.Object, "data", "config.yaml")
+				if err != nil || !found {
+					continue
+				}
+				if !strings.Contains(data, tc.want) {
+					t.Fatalf("apiserver ConfigMap config.yaml does not contain %q:\n%s", tc.want, data)
+				}
+				return
+			}
+			t.Fatal("apiserver ConfigMap with config.yaml not rendered")
+		})
+	}
+}
+
 func TestRenderBatchChart_AsyncDispatchSQLMaxConnections(t *testing.T) {
 	renderer, err := NewHelmRenderer("../../batch-gateway/charts/batch-gateway", testImages(), tlspkg.ProfileValues{})
 	if err != nil {

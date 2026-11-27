@@ -182,6 +182,20 @@ spec:
 EOF
 ```
 
+#### API server tenant and proxy token checks
+
+The batch-gateway API server can require the auth proxy in front of it to send a shared token (`X-Gateway-Token`) and a tenant header (`X-MaaS-Username` by default), and reject requests without them with `401`. `spec.apiServer.config.allowAnonymousTenant` controls this:
+
+- Unset or `true`: the checks are off. A request without the tenant header is served as the `default` tenant. This is how the API server behaved before the checks existed, so existing gateways keep working after an upgrade.
+- `false`: both checks are on. Add the token to the Secret in `spec.secretRef` under the key `apiserver-proxy-token` before setting it (the API server does not start without it), and configure the auth proxy to send the same value in `X-Gateway-Token` and to set the tenant header from the authenticated identity. See the batch-gateway [security guide](https://github.com/llm-d/llm-d-batch-gateway/blob/main/docs/guides/security.md).
+
+```yaml
+spec:
+  apiServer:
+    config:
+      allowAnonymousTenant: false
+```
+
 ### Step 4: Check Batch Gateway status
 
 ```bash

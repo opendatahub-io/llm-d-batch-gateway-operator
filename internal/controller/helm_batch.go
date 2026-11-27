@@ -119,14 +119,19 @@ func specToBatchHelmValues(gw *batchv1alpha1.LLMBatchGateway, secretName string,
 	if gw.Spec.APIServer.Resources != nil {
 		apiserver["resources"] = resourceRequirementsToMap(gw.Spec.APIServer.Resources)
 	}
+	apiserverConfig := map[string]any{}
 	if gw.Spec.APIServer.Config != nil {
-		apiserver["config"] = apiServerConfigToMap(gw.Spec.APIServer.Config)
+		apiserverConfig = apiServerConfigToMap(gw.Spec.APIServer.Config)
 		if gw.Spec.APIServer.Config.Logging != nil && gw.Spec.APIServer.Config.Logging.Verbosity != 0 {
 			apiserver["logging"] = map[string]any{
 				"verbosity": int64(gw.Spec.APIServer.Config.Logging.Verbosity),
 			}
 		}
 	}
+	// Always rendered: the chart's own default is false, which makes the API
+	// server refuse to start without an apiserver-proxy-token key.
+	apiserverConfig["allowAnonymousTenant"] = allowAnonymousTenant(gw.Spec.APIServer.Config)
+	apiserver["config"] = apiserverConfig
 
 	// TLS
 	tls := map[string]any{}
@@ -409,6 +414,15 @@ func apiServerConfigToMap(cfg *batchv1alpha1.APIServerConfigSpec) map[string]int
 		m["enablePprof"] = true
 	}
 	return m
+}
+
+// allowAnonymousTenant returns spec.apiserver.config.allowAnonymousTenant,
+// true when unset.
+func allowAnonymousTenant(cfg *batchv1alpha1.APIServerConfigSpec) bool {
+	if cfg == nil || cfg.AllowAnonymousTenant == nil {
+		return true
+	}
+	return *cfg.AllowAnonymousTenant
 }
 
 func mergeProcessorConfig(m map[string]interface{}, cfg *batchv1alpha1.ProcessorConfigSpec) {

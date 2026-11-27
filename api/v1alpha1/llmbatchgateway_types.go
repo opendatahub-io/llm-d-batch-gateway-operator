@@ -243,6 +243,17 @@ type APIServerConfigSpec struct {
 	// identification and other input metadata (e.g. {"tenant": "X-MaaS-Username"}).
 	InputHeaders map[string]string `json:"inputHeaders,omitempty"`
 
+	// AllowAnonymousTenant serves requests without the tenant header as the
+	// "default" tenant and turns off the API server's auth proxy token check.
+	// Unset means true, matching how the API server behaved before it gained
+	// those checks, so existing deployments keep starting after an upgrade.
+	// Set it to false to require both: then the Secret in spec.secretRef must
+	// hold an apiserver-proxy-token key, and the auth proxy in front of the API
+	// server must send that token in X-Gateway-Token and set the tenant header
+	// from the authenticated identity.
+	// +optional
+	AllowAnonymousTenant *bool `json:"allowAnonymousTenant,omitempty"`
+
 	// BatchAPI configures the batch job submission endpoint behaviour.
 	BatchAPI *BatchAPIConfig `json:"batchAPI,omitempty"`
 
