@@ -1934,7 +1934,8 @@ spec:
               conditions:
                 description: |-
                   Conditions represent the latest available observations of the LLMBatchGateway's state.
-                  Known condition types: Ready, APIServerAvailable, ProcessorAvailable, GCAvailable.
+                  Known condition types: Ready, APIServerAvailable, ProcessorAvailable,
+                  GCAvailable, AsyncProcessorAvailable, and APIServerNetworkPolicyManaged.
                 items:
                   description: Condition contains details for one aspect of the current
                     state of this API Resource.

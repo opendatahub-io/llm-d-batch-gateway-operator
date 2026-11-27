@@ -781,7 +781,8 @@ type LLMBatchGatewayStatus struct {
 	ObservedGeneration int64 `json:"observedGeneration,omitempty"`
 
 	// Conditions represent the latest available observations of the LLMBatchGateway's state.
-	// Known condition types: Ready, APIServerAvailable, ProcessorAvailable, GCAvailable.
+	// Known condition types: Ready, APIServerAvailable, ProcessorAvailable,
+	// GCAvailable, AsyncProcessorAvailable, and APIServerNetworkPolicyManaged.
 	Conditions []metav1.Condition `json:"conditions,omitempty"`
 
 	// ComponentStatus reports the replica counts for each managed component.

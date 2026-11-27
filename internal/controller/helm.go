@@ -133,20 +133,20 @@ func toStringInterfaceMap(m map[string]string) map[string]interface{} {
 	return result
 }
 
-func networkPolicyPeersToHelmValues(peers []networkingv1.NetworkPolicyPeer) []interface{} {
+func networkPolicyPeersToHelmValues(peers []networkingv1.NetworkPolicyPeer) ([]interface{}, error) {
 	result := make([]interface{}, 0, len(peers))
-	for _, peer := range peers {
+	for i, peer := range peers {
 		data, err := json.Marshal(peer)
 		if err != nil {
-			panic(fmt.Sprintf("marshal NetworkPolicyPeer: %v", err))
+			return nil, fmt.Errorf("marshalling NetworkPolicyPeer %d: %w", i, err)
 		}
 		var value map[string]interface{}
 		if err := json.Unmarshal(data, &value); err != nil {
-			panic(fmt.Sprintf("unmarshal NetworkPolicyPeer: %v", err))
+			return nil, fmt.Errorf("unmarshalling NetworkPolicyPeer %d: %w", i, err)
 		}
 		result = append(result, value)
 	}
-	return result
+	return result, nil
 }
 
 func toJSONAwareMap(m map[string]string) map[string]any {

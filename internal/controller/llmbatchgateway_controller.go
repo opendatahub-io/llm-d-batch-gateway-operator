@@ -34,11 +34,12 @@ import (
 )
 
 const (
-	conditionReady                   = "Ready"
-	conditionAPIServerAvailable      = "APIServerAvailable"
-	conditionProcessorAvailable      = "ProcessorAvailable"
-	conditionGCAvailable             = "GCAvailable"
-	conditionAsyncProcessorAvailable = "AsyncProcessorAvailable"
+	conditionReady                         = "Ready"
+	conditionAPIServerAvailable            = "APIServerAvailable"
+	conditionProcessorAvailable            = "ProcessorAvailable"
+	conditionGCAvailable                   = "GCAvailable"
+	conditionAsyncProcessorAvailable       = "AsyncProcessorAvailable"
+	conditionAPIServerNetworkPolicyManaged = "APIServerNetworkPolicyManaged"
 
 	dispatchModeAsync        = "async"
 	dispatchModeSync         = "sync"
@@ -62,11 +63,15 @@ const (
 	reasonSecretRefImmutable      = "SecretRefImmutable"
 	reasonValidationFailed        = "ValidationFailed"
 	reasonRenderFailed            = "RenderFailed"
+	reasonOrphanCleanupFailed     = "OrphanCleanupFailed"
 	reasonAvailable               = "Available"
 	reasonUnavailable             = "Unavailable"
 	reasonReady                   = "AllComponentsReady"
 	reasonNotReady                = "ComponentsNotReady"
 	reasonApplyFailed             = "ApplyFailed"
+	reasonNetworkPolicyEnabled    = "Enabled"
+	reasonNetworkPolicyDisabled   = "Disabled"
+	reasonNetworkPolicyPending    = "ReconciliationPending"
 
 	readyMessage    = "All components are fully rolled out"
 	notReadyMessage = "One or more components are not fully rolled out"
@@ -129,6 +134,7 @@ var _ reconcile.Reconciler = (*LLMBatchGatewayReconciler)(nil)
 
 type LLMBatchGatewayReconciler struct {
 	client.Client
+	apiReader           client.Reader
 	Scheme              *runtime.Scheme
 	BatchGWHelmRenderer *HelmRenderer
 	AsyncHelmRenderer   *HelmRenderer
@@ -141,6 +147,7 @@ type LLMBatchGatewayReconciler struct {
 func NewLLMBatchGatewayReconciler(c client.Client, scheme *runtime.Scheme, batchGWHelm *HelmRenderer, asyncHelm *HelmRenderer, recorder record.EventRecorder, syncPeriod time.Duration, reconcileTimeout time.Duration) *LLMBatchGatewayReconciler {
 	return &LLMBatchGatewayReconciler{
 		Client:              c,
+		apiReader:           c,
 		Scheme:              scheme,
 		BatchGWHelmRenderer: batchGWHelm,
 		AsyncHelmRenderer:   asyncHelm,
@@ -246,6 +253,9 @@ func (r *LLMBatchGatewayReconciler) reconcile(ctx context.Context, req ctrl.Requ
 	batchObjects = append(batchObjects, asyncObjects...)
 
 	allObjects := batchObjects
+	if err := r.markNetworkPolicyCleanupPending(ctx, &gw); err != nil {
+		return ctrl.Result{}, fmt.Errorf("recording API server NetworkPolicy cleanup state: %w", err)
+	}
 	for _, obj := range allObjects {
 		obj.SetNamespace(gw.Namespace)
 
@@ -265,6 +275,14 @@ func (r *LLMBatchGatewayReconciler) reconcile(ctx context.Context, req ctrl.Requ
 	}
 
 	if err := r.deleteOrphanedResources(ctx, &gw, allObjects); err != nil {
+		failure := statusFailure{
+			reason:     reasonOrphanCleanupFailed,
+			message:    fmt.Sprintf("Deleting orphaned resources failed: %s", err),
+			conditions: []string{conditionReady},
+		}
+		if statusErr := r.recordFailure(ctx, &gw, failure); statusErr != nil {
+			return ctrl.Result{}, fmt.Errorf("deleting orphaned resources: %w; recording failure status: %w", err, statusErr)
+		}
 		return ctrl.Result{}, fmt.Errorf("deleting orphaned resources: %w", err)
 	}
 
@@ -308,7 +326,8 @@ func (r *LLMBatchGatewayReconciler) recordFailure(ctx context.Context, gw *batch
 	return nil
 }
 
-// allConditionTypes lists every condition this operator maintains.
+// allConditionTypes lists the conditions marked false when spec validation fails.
+// APIServerNetworkPolicyManaged records prior state needed for cleanup and is excluded.
 func allConditionTypes() []string {
 	return []string{
 		conditionReady,
@@ -350,9 +369,19 @@ func (r *LLMBatchGatewayReconciler) deleteOrphanedResources(
 			Name:  obj.GetName(),
 		}] = struct{}{}
 	}
+	checkNetworkPolicyOrphans := apiServerNetworkPolicyEnabled(gw)
+	if !checkNetworkPolicyOrphans {
+		previouslyManaged := meta.FindStatusCondition(gw.Status.Conditions, conditionAPIServerNetworkPolicyManaged)
+		checkNetworkPolicyOrphans = previouslyManaged == nil || previouslyManaged.Status != metav1.ConditionFalse
+	}
 
 	var errs []error
 	for _, gvk := range managedGVKs {
+		if gvk.Kind == "NetworkPolicy" && !checkNetworkPolicyOrphans {
+			logger.V(1).Info("skipping orphan check (NetworkPolicy is disabled and was previously cleaned up)")
+			continue
+		}
+
 		var list unstructured.UnstructuredList
 		list.SetGroupVersionKind(schema.GroupVersionKind{
 			Group:   gvk.Group,
@@ -396,6 +425,50 @@ func (r *LLMBatchGatewayReconciler) deleteOrphanedResources(
 	}
 
 	return errors.Join(errs...)
+}
+
+func apiServerNetworkPolicyEnabled(gw *batchv1alpha1.LLMBatchGateway) bool {
+	return gw.Spec.APIServer.NetworkPolicy != nil && gw.Spec.APIServer.NetworkPolicy.Enabled
+}
+
+// markNetworkPolicyCleanupPending persists a non-False tracking condition
+// before applying an enabled NetworkPolicy. If resource application or orphan
+// cleanup then fails, a later reconcile with the feature disabled will still
+// scan and remove any NetworkPolicy that may have been created.
+func (r *LLMBatchGatewayReconciler) markNetworkPolicyCleanupPending(
+	ctx context.Context,
+	gw *batchv1alpha1.LLMBatchGateway,
+) error {
+	if !apiServerNetworkPolicyEnabled(gw) {
+		return nil
+	}
+
+	previouslyManaged := meta.FindStatusCondition(gw.Status.Conditions, conditionAPIServerNetworkPolicyManaged)
+	if previouslyManaged != nil && previouslyManaged.Status != metav1.ConditionFalse {
+		return nil
+	}
+
+	meta.SetStatusCondition(&gw.Status.Conditions, metav1.Condition{
+		Type:               conditionAPIServerNetworkPolicyManaged,
+		Status:             metav1.ConditionUnknown,
+		Reason:             reasonNetworkPolicyPending,
+		Message:            "NetworkPolicy reconciliation is pending; orphan cleanup remains enabled",
+		ObservedGeneration: gw.Generation,
+	})
+	if err := NewStatusPatch(gw.ResourceVersion).
+		Add(conditionsStatusField, gw.Status.Conditions).
+		Apply(ctx, r.Client, gw); err != nil {
+		return fmt.Errorf("persisting NetworkPolicy cleanup state: %w", err)
+	}
+
+	reader := r.apiReader
+	if reader == nil {
+		reader = r.Client
+	}
+	if err := reader.Get(ctx, types.NamespacedName{Name: gw.Name, Namespace: gw.Namespace}, gw); err != nil {
+		return fmt.Errorf("refreshing LLMBatchGateway after persisting NetworkPolicy cleanup state: %w", err)
+	}
+	return nil
 }
 
 func (r *LLMBatchGatewayReconciler) updateStatus(ctx context.Context, gw *batchv1alpha1.LLMBatchGateway) error {
@@ -457,6 +530,21 @@ func (r *LLMBatchGatewayReconciler) updateStatus(ctx context.Context, gw *batchv
 	gcAvailable := setComponentAvailableCondition(gw, gcCondition, componentStatus.GC)
 	asyncAvailable := setComponentAvailableCondition(gw, asyncProcessorCondition, componentStatus.AsyncProcessor)
 
+	networkPolicyEnabled := apiServerNetworkPolicyEnabled(gw)
+	networkPolicyReason := reasonNetworkPolicyDisabled
+	networkPolicyMessage := "spec.apiServer.networkPolicy.enabled is false or unset; the API server NetworkPolicy is not managed"
+	if networkPolicyEnabled {
+		networkPolicyReason = reasonNetworkPolicyEnabled
+		networkPolicyMessage = "spec.apiServer.networkPolicy.enabled is true; the API server NetworkPolicy is managed"
+	}
+	meta.SetStatusCondition(&gw.Status.Conditions, metav1.Condition{
+		Type:               conditionAPIServerNetworkPolicyManaged,
+		Status:             conditionStatus(networkPolicyEnabled),
+		Reason:             networkPolicyReason,
+		Message:            networkPolicyMessage,
+		ObservedGeneration: gw.Generation,
+	})
+
 	ready := apiAvailable && procAvailable && gcAvailable && asyncAvailable
 
 	// Snapshot the previous Ready condition before overwriting it so we can
@@ -492,6 +580,8 @@ func (r *LLMBatchGatewayReconciler) updateStatus(ctx context.Context, gw *batchv
 }
 
 func (r *LLMBatchGatewayReconciler) SetupWithManager(mgr ctrl.Manager) error {
+	r.apiReader = mgr.GetAPIReader()
+
 	// enqueueForSecret maps a Secret event to the LLMBatchGateway CRs whose
 	// cross-namespace secretRef points at it. The secretWatchFilter predicate
 	// ensures this map func is only called for secrets we actually track, so the

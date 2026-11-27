@@ -1,6 +1,8 @@
 package controller
 
 import (
+	"fmt"
+
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 
@@ -9,10 +11,14 @@ import (
 )
 
 func (h *HelmRenderer) RenderBatchChart(gw *batchv1alpha1.LLMBatchGateway, secretName string) ([]*unstructured.Unstructured, error) {
-	return h.renderChart(gw, specToBatchHelmValues(gw, secretName, h.images, h.tlsProfile), nil)
+	values, err := specToBatchHelmValues(gw, secretName, h.images, h.tlsProfile)
+	if err != nil {
+		return nil, fmt.Errorf("building batch-gateway chart values: %w", err)
+	}
+	return h.renderChart(gw, values, nil)
 }
 
-func specToBatchHelmValues(gw *batchv1alpha1.LLMBatchGateway, secretName string, images ComponentImages, tlsProfile tlspkg.ProfileValues) map[string]any {
+func specToBatchHelmValues(gw *batchv1alpha1.LLMBatchGateway, secretName string, images ComponentImages, tlsProfile tlspkg.ProfileValues) (map[string]any, error) {
 	vals := map[string]any{}
 
 	// --- Global ---
@@ -156,7 +162,11 @@ func specToBatchHelmValues(gw *batchv1alpha1.LLMBatchGateway, secretName string,
 	apiserverConfig["allowAnonymousTenant"] = allowAnonymousTenant(gw.Spec.APIServer.Config)
 	apiserver["config"] = apiserverConfig
 	if gw.Spec.APIServer.NetworkPolicy != nil {
-		apiserver["networkPolicy"] = apiServerNetworkPolicyToMap(gw.Spec.APIServer.NetworkPolicy)
+		networkPolicy, err := apiServerNetworkPolicyToMap(gw.Spec.APIServer.NetworkPolicy)
+		if err != nil {
+			return nil, fmt.Errorf("converting API server NetworkPolicy: %w", err)
+		}
+		apiserver["networkPolicy"] = networkPolicy
 	}
 
 	// TLS
@@ -377,7 +387,7 @@ func specToBatchHelmValues(gw *batchv1alpha1.LLMBatchGateway, secretName string,
 		vals["prometheusRule"] = pr
 	}
 
-	return vals
+	return vals, nil
 }
 
 func asyncModelGatewayToMap(gw *batchv1alpha1.ModelGatewaySpec) map[string]interface{} {
@@ -450,7 +460,7 @@ func allowAnonymousTenant(cfg *batchv1alpha1.APIServerConfigSpec) bool {
 	return *cfg.AllowAnonymousTenant
 }
 
-func apiServerNetworkPolicyToMap(cfg *batchv1alpha1.APIServerNetworkPolicySpec) map[string]interface{} {
+func apiServerNetworkPolicyToMap(cfg *batchv1alpha1.APIServerNetworkPolicySpec) (map[string]interface{}, error) {
 	networkPolicy := map[string]interface{}{
 		"enabled": cfg.Enabled,
 		"api": map[string]interface{}{
@@ -461,12 +471,20 @@ func apiServerNetworkPolicyToMap(cfg *batchv1alpha1.APIServerNetworkPolicySpec) 
 		},
 	}
 	if cfg.API != nil {
-		networkPolicy["api"].(map[string]interface{})["from"] = networkPolicyPeersToHelmValues(cfg.API.From)
+		peers, err := networkPolicyPeersToHelmValues(cfg.API.From)
+		if err != nil {
+			return nil, fmt.Errorf("converting api.from peers: %w", err)
+		}
+		networkPolicy["api"].(map[string]interface{})["from"] = peers
 	}
 	if cfg.Observability != nil {
-		networkPolicy["observability"].(map[string]interface{})["from"] = networkPolicyPeersToHelmValues(cfg.Observability.From)
+		peers, err := networkPolicyPeersToHelmValues(cfg.Observability.From)
+		if err != nil {
+			return nil, fmt.Errorf("converting observability.from peers: %w", err)
+		}
+		networkPolicy["observability"].(map[string]interface{})["from"] = peers
 	}
-	return networkPolicy
+	return networkPolicy, nil
 }
 
 func mergeProcessorConfig(m map[string]interface{}, cfg *batchv1alpha1.ProcessorConfigSpec) {
